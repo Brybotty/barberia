@@ -1,0 +1,6 @@
+node_modules/
+lib/
+# Valores locales (emuladores) y secretos: nunca al repositorio.
+.env.local
+.secret.local
+*.local

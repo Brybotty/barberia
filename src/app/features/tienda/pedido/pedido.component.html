@@ -1,0 +1,127 @@
+<div class="max-w-4xl mx-auto px-4 sm:px-6 py-10 md:py-14">
+  @if (pedido() === undefined) {
+    <div class="vidrio rounded-3xl h-96 animate-pulse"></div>
+  } @else if (pedido() === null) {
+    <div class="vidrio rounded-3xl py-20 px-6 text-center">
+      <h1 class="font-display text-3xl font-black text-white mb-3">No encontramos este pedido</h1>
+      <p class="text-neutral-400 mb-8">Revisa que hayas iniciado sesión con la misma cuenta con la que compraste.</p>
+      <a routerLink="/mis-pedidos" class="inline-flex bg-acento-500 hover:bg-acento-400 text-sobre-acento font-black px-8 py-3.5 rounded-full transition-colors">Ver mis pedidos</a>
+    </div>
+  } @else {
+    @let p = pedido()!;
+
+    <!-- Encabezado -->
+    <div class="text-center mb-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div class="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center"
+           [ngClass]="p.estado === 'cancelado' || (p.pago.metodo === 'en-linea' && ['rechazado', 'error', 'anulado'].includes(p.pago.estado))
+             ? 'bg-red-500/10 text-red-400'
+             : p.pago.metodo === 'en-linea' && p.pago.estado === 'pendiente' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-400'">
+        @if (p.estado === 'cancelado' || (p.pago.metodo === 'en-linea' && ['rechazado', 'error', 'anulado'].includes(p.pago.estado))) {
+          <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        } @else if (p.pago.metodo === 'en-linea' && p.pago.estado === 'pendiente') {
+          <svg class="w-10 h-10" [class.animate-spin]="verificandoPago()" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        } @else {
+          <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+        }
+      </div>
+      <p class="text-detalle-400 text-xs font-extrabold uppercase tracking-[0.3em] mb-3">Pedido #{{ codigo }}</p>
+      <h1 class="font-display text-3xl sm:text-4xl font-black text-white mb-3">{{ titulo(p) }}</h1>
+      <p class="text-neutral-400 max-w-lg mx-auto">{{ mensaje(p) }}</p>
+
+      <div class="flex flex-wrap items-center justify-center gap-3 mt-8">
+        @if (puedePagar()) {
+          <button type="button" (click)="pagar()" [disabled]="pagando()" class="inline-flex items-center gap-2 bg-acento-500 hover:bg-acento-400 disabled:opacity-50 text-sobre-acento font-black px-7 py-3.5 rounded-full transition-colors">
+            {{ pagando() ? 'Abriendo el pago…' : 'Pagar ' + (p.total | currency:'COP':'symbol-narrow':'1.0-0') }}
+          </button>
+        }
+        @if (whatsapp(p); as enlace) {
+          <a [href]="enlace" target="_blank" rel="noopener" class="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold px-6 py-3.5 rounded-full transition-colors">Escríbenos por WhatsApp</a>
+        } @else {
+          <a [href]="'https://ig.me/m/' + cliente.instagram.usuario" target="_blank" rel="noopener" class="inline-flex items-center gap-2 text-white font-bold px-6 py-3.5 rounded-full border border-white/15 hover:bg-white/5 transition-colors">Escríbenos por Instagram</a>
+        }
+      </div>
+    </div>
+
+    <!-- Progreso -->
+    @if (p.estado !== 'cancelado') {
+      <ol class="vidrio rounded-3xl p-6 sm:p-8 mb-6 grid grid-cols-4 gap-2">
+        @for (paso of pasos(); track paso.etiqueta; let i = $index; let ultimo = $last) {
+          <li class="relative flex flex-col items-center text-center">
+            @if (!ultimo) {
+              <span class="absolute top-4 left-1/2 w-full h-0.5" [ngClass]="pasos()[i + 1].hecho ? 'bg-acento-400' : 'bg-white/10'"></span>
+            }
+            <span class="relative z-10 w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 transition-colors"
+                  [ngClass]="paso.hecho ? 'bg-acento-400 border-acento-400 text-sobre-acento' : 'bg-neutral-950 border-white/15 text-neutral-500'">
+              @if (paso.hecho) {
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+              } @else { {{ i + 1 }} }
+            </span>
+            <span class="mt-3 text-[11px] sm:text-xs font-bold leading-tight" [ngClass]="paso.hecho ? 'text-white' : 'text-neutral-500'">{{ paso.etiqueta }}</span>
+          </li>
+        }
+      </ol>
+    }
+
+    <div class="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-6 items-start">
+      <!-- Productos -->
+      <section class="vidrio rounded-3xl p-6 sm:p-7">
+        <h2 class="text-lg font-black text-white mb-5">Productos</h2>
+        <ul class="space-y-4">
+          @for (item of p.items; track $index) {
+            <li class="flex items-center gap-4">
+              <app-producto-imagen class="w-14 h-14 rounded-xl shrink-0" [src]="imagenes().get(item.productoId)" [nombre]="item.nombre" tamanoInicial="1.5rem" />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-bold text-white truncate">{{ item.nombre }}</p>
+                <p class="text-xs text-neutral-500">{{ item.opcion ? item.opcion + ' · ' : '' }}{{ item.cantidad }} × {{ item.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+              </div>
+              <span class="text-sm font-black text-white">{{ item.precio * item.cantidad | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+            </li>
+          }
+        </ul>
+        <dl class="space-y-2 text-sm border-t border-white/10 mt-6 pt-5">
+          <div class="flex justify-between"><dt class="text-neutral-400">Subtotal</dt><dd class="text-white font-bold">{{ p.subtotal | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+          <div class="flex justify-between"><dt class="text-neutral-400">Envío</dt><dd class="font-bold" [ngClass]="p.envio ? 'text-white' : 'text-emerald-400'">{{ p.envio ? (p.envio | currency:'COP':'symbol-narrow':'1.0-0') : 'Gratis' }}</dd></div>
+          <div class="flex justify-between pt-3 border-t border-white/10 mt-3"><dt class="font-black text-white">Total</dt><dd class="font-black text-white text-xl">{{ p.total | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+        </dl>
+      </section>
+
+      <!-- Detalles -->
+      <aside class="vidrio rounded-3xl p-6 space-y-5 text-sm">
+        <div>
+          <p class="etiqueta">Estado</p>
+          <div class="flex flex-wrap gap-2">
+            <span class="text-xs font-bold px-2.5 py-1 rounded-full border" [ngClass]="colorEstado[p.estado]">{{ etiquetaEstado(p) }}</span>
+            <span class="text-xs font-bold px-2.5 py-1 rounded-full border" [ngClass]="colorPago[p.pago.estado]">{{ etiquetaPago(p.pago) }}</span>
+          </div>
+        </div>
+        <div>
+          <p class="etiqueta">Fecha</p>
+          <p class="text-white">{{ p.creadoEn | date:'d MMM y, h:mm a' }}</p>
+        </div>
+        <div>
+          <p class="etiqueta">Entrega</p>
+          <p class="text-white font-bold">{{ nombreEntrega[p.entrega.tipo] }}</p>
+          @if (p.entrega.tipo === 'recoger') {
+            <p class="text-neutral-400">{{ cliente.ubicacion?.direccion }}</p>
+          } @else {
+            <p class="text-neutral-400">{{ p.entrega.direccion }}{{ p.entrega.barrio ? ', ' + p.entrega.barrio : '' }}</p>
+            <p class="text-neutral-400">{{ p.entrega.ciudad }}, {{ p.entrega.departamento }}</p>
+          }
+        </div>
+        <div>
+          <p class="etiqueta">Pago</p>
+          <p class="text-white">{{ nombreMetodo[p.pago.metodo] }}</p>
+        </div>
+        @if (puedeCancelar()) {
+          <button type="button" (click)="cancelar()" class="w-full text-sm font-bold text-neutral-400 hover:text-red-400 border border-white/10 hover:border-red-500/30 rounded-xl py-2.5 transition-colors">Cancelar pedido</button>
+        }
+      </aside>
+    </div>
+
+    <p class="text-center mt-10">
+      <a routerLink="/mis-pedidos" class="text-sm font-bold text-neutral-400 hover:text-white transition-colors">Ver todos mis pedidos</a>
+      <span class="text-neutral-700 mx-3">·</span>
+      <a routerLink="/tienda" class="text-sm font-bold text-neutral-400 hover:text-white transition-colors">Volver a la tienda</a>
+    </p>
+  }
+</div>

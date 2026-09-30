@@ -1,0 +1,66 @@
+<div class="min-h-screen flex flex-col md:flex-row bg-neutral-950">
+  
+  <!-- Mitad Izquierda (Imagen Premium) -->
+  <div class="md:w-[45%] lg:w-1/2 relative hidden md:block">
+    <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent z-10"></div>
+    <img src="https://images.unsplash.com/photo-1599351431202-1e0f0137899a?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80" [alt]="'Experiencia ' + cliente.nombre" class="absolute inset-0 w-full h-full object-cover">
+    
+    <!-- Caja de texto Glassmorphism -->
+    <div class="absolute inset-0 z-20 flex flex-col justify-end p-12 lg:p-20 pb-20">
+      <div class="bg-black/20 backdrop-blur-xl p-10 rounded-[2.5rem] border border-white/10 shadow-2xl drop-shadow-[0_15px_25px_rgba(0,0,0,0.5)] transform transition-all duration-500 hover:scale-[1.02]">
+        <h1 class="text-4xl lg:text-5xl text-white mb-5"><app-marca claseLogo="w-16 h-16" /></h1>
+        <p class="text-lg text-slate-200 font-medium leading-relaxed">
+          Únete a nuestro club exclusivo. Gestiona tus citas, descubre nuevos estilos y disfruta de una experiencia verdaderamente premium de principio a fin.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mitad Derecha (Formulario Login) -->
+  <div class="w-full md:w-[55%] lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
+    
+    <!-- Botón Volver -->
+    <a href="/" class="absolute top-6 left-6 md:top-10 md:left-10 flex items-center gap-2 text-neutral-500 hover:text-white font-extrabold text-sm transition-all duration-300 hover:-translate-x-1">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+      Volver al inicio
+    </a>
+
+    <!-- Contenedor Principal del Login -->
+    <div class="w-full max-w-md">
+      
+      <!-- Logo solo visible en Móvil -->
+      <div class="md:hidden text-center mb-12">
+        <h1 class="text-3xl text-white"><app-marca claseLogo="w-14 h-14" /></h1>
+      </div>
+
+      <!-- Títulos -->
+      <div class="text-center mb-12">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-acento-500/10 text-acento-500 mb-6 border border-acento-500/20 shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+        </div>
+        <h2 class="font-display text-3xl lg:text-4xl font-black text-white mb-3 tracking-tight">Acceso Exclusivo</h2>
+        <p class="text-neutral-400 font-medium text-base">Inicia sesión de forma rápida y segura para agendar tu próxima visita.</p>
+      </div>
+
+      <!-- Botón de Google (CTA Principal) -->
+      <button (click)="login()" class="w-full bg-white border-2 border-slate-200 text-slate-700 font-extrabold py-4 px-6 rounded-[1.25rem] flex items-center justify-center gap-4 hover:bg-neutral-100 hover:shadow-lg hover:shadow-white/10 transition-all duration-300 active:scale-95 group">
+        <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-6 h-6 transition-transform duration-300 group-hover:scale-110" alt="Google">
+        <span class="text-[15px] tracking-wide">Continuar con Google</span>
+      </button>
+
+      <!-- Divisor Estilizado -->
+      <div class="mt-12 flex items-center gap-4">
+        <div class="h-px bg-white/10 flex-1"></div>
+        <span class="text-[10px] font-black text-neutral-500 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-full">Proceso Seguro</span>
+        <div class="h-px bg-white/10 flex-1"></div>
+      </div>
+
+      <!-- Autorización de datos (Ley 1581 de 2012) -->
+      <p class="mt-8 text-center text-[11px] text-neutral-500 font-medium leading-relaxed px-4">
+        Al continuar autorizas el tratamiento de tus datos personales para gestionar tus reservas y pedidos, según nuestra
+        <a routerLink="/politica-de-datos" class="text-neutral-300 font-bold hover:text-white underline transition-colors">Política de tratamiento de datos</a>.
+      </p>
+
+    </div>
+  </div>
+</div>

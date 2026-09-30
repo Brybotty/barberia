@@ -1,0 +1,407 @@
+<div class="min-h-[calc(100vh-80px)] bg-neutral-950 relative overflow-hidden">
+  <div class="absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_at_top,rgb(var(--acento-500)/0.08),transparent_70%)] pointer-events-none"></div>
+
+  <div class="relative max-w-5xl mx-auto px-4 py-12 md:py-16">
+
+  @if (!reservaConfirmada) {
+    <!-- Encabezado + stepper -->
+    <div class="text-center mb-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <p class="text-detalle-400 text-xs font-extrabold uppercase tracking-[0.3em] mb-3">{{ cliente.nombre }}</p>
+      <h1 class="font-display text-4xl md:text-5xl font-black text-white tracking-tight">Reserva tu turno</h1>
+    </div>
+
+    <nav class="flex items-center justify-center gap-2 sm:gap-3 mb-12" aria-label="Pasos de la reserva">
+      @for (p of pasos; track p.numero; let ultimo = $last) {
+        <button (click)="irAPaso(p.numero)" [disabled]="!puedeIrA(p.numero)"
+                class="group flex items-center gap-2 disabled:cursor-not-allowed">
+          <span class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border transition-all duration-300"
+                [ngClass]="paso === p.numero ? 'bg-acento-500 text-sobre-acento border-acento-500 shadow-lg shadow-acento-500/30'
+                           : paso > p.numero ? 'bg-acento-500/15 text-acento-500 border-acento-500/40'
+                           : 'text-neutral-500 border-white/15'">
+            @if (paso > p.numero) {
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+            } @else {
+              0{{ p.numero }}
+            }
+          </span>
+          <span class="hidden sm:inline text-sm font-bold transition-colors"
+                [ngClass]="paso === p.numero ? 'text-white' : paso > p.numero ? 'text-neutral-300 group-hover:text-white' : 'text-neutral-600'">{{ p.titulo }}</span>
+        </button>
+        @if (!ultimo) {
+          <span class="w-6 sm:w-10 h-px" [ngClass]="paso > p.numero ? 'bg-acento-500/50' : 'bg-white/10'"></span>
+        }
+      }
+    </nav>
+
+    <!-- ============ PASO 1: PROFESIONAL ============ -->
+    @if (paso === 1) {
+      <section class="animate-in fade-in slide-in-from-right-8 duration-500">
+        <div class="text-center mb-8">
+          <h2 class="text-2xl md:text-3xl font-black text-white">Elige a tu <span class="text-acento-500">barbero</span></h2>
+          <p class="text-neutral-400 mt-2">Selecciona el profesional con el que deseas atenderte.</p>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+          <!-- Cualquiera -->
+          <button (click)="seleccionarBarbero(CUALQUIERA)"
+                  class="group relative aspect-[3/4] rounded-3xl overflow-hidden border text-left transition-all duration-300 hover:-translate-y-1 bg-neutral-900"
+                  [ngClass]="barberoElegido && barberoSeleccionado === CUALQUIERA ? 'border-acento-500 ring-2 ring-acento-500/40' : 'border-white/10 hover:border-white/30'">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgb(var(--acento-500)/0.15),transparent_65%)]"></div>
+            <div class="absolute inset-0 flex items-center justify-center pb-20">
+              <svg class="w-20 h-20 text-white/15 group-hover:text-white/25 group-hover:scale-110 transition-all duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            </div>
+            <div class="absolute inset-x-0 bottom-0 p-4 md:p-5 bg-gradient-to-t from-black via-black/85 to-transparent">
+              <span class="inline-block text-[9px] md:text-[10px] font-extrabold uppercase tracking-widest text-neutral-300 border border-white/20 px-2 py-0.5 rounded-md mb-2">Más rápido</span>
+              <h3 class="text-lg md:text-xl font-black text-white leading-tight">Cualquier barbero</h3>
+              <p class="text-xs text-neutral-400 mt-1">Te asignamos el primero disponible.</p>
+            </div>
+          </button>
+
+          @for (b of staff; track b.id) {
+            <button (click)="seleccionarBarbero(b.id!)"
+                    class="group relative aspect-[3/4] rounded-3xl overflow-hidden border text-left transition-all duration-300 hover:-translate-y-1 bg-neutral-900"
+                    [ngClass]="barberoElegido && barberoSeleccionado === b.id ? 'border-acento-500 ring-2 ring-acento-500/40' : 'border-white/10 hover:border-white/30'">
+              @if (b.avatar) {
+                <img [src]="b.avatar" [alt]="b.nombre" class="absolute inset-0 w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700">
+              } @else {
+                <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgb(var(--acento-500)/0.15),transparent_65%)]"></div>
+                <div class="absolute inset-0 flex items-center justify-center pb-20">
+                  <span class="font-display font-black text-7xl md:text-8xl text-white/10 group-hover:text-white/20 group-hover:scale-110 transition-all duration-500">{{ iniciales(b.nombre) }}</span>
+                </div>
+              }
+              <div class="absolute inset-x-0 bottom-0 p-4 md:p-5 bg-gradient-to-t from-black via-black/85 to-transparent">
+                <span class="inline-block text-[9px] md:text-[10px] font-extrabold uppercase tracking-widest text-sobre-acento bg-acento-500 px-2 py-0.5 rounded-md mb-2">{{ b.especialidad || 'Barbero' }}</span>
+                <h3 class="text-lg md:text-xl font-black text-white leading-tight">{{ b.nombre }}</h3>
+                <span class="mt-3 hidden md:flex items-center justify-center gap-1 w-full bg-acento-500 text-sobre-acento rounded-xl py-2 text-sm font-black opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                  Seleccionar
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+                </span>
+              </div>
+            </button>
+          }
+        </div>
+      </section>
+    }
+
+    <!-- ============ PASO 2: SERVICIO ============ -->
+    @if (paso === 2) {
+      <section class="animate-in fade-in slide-in-from-right-8 duration-500">
+        <div class="flex justify-center mb-8">
+          <div class="vidrio rounded-2xl px-5 py-3 flex items-center gap-3">
+            <span class="w-9 h-9 rounded-full bg-acento-500/15 text-acento-500 flex items-center justify-center text-xs font-black">@if (barberoSeleccionado === CUALQUIERA) {<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>} @else {{{ iniciales(barberoNombreSeleccionado) }}}</span>
+            <div class="text-left">
+              <p class="text-[10px] font-extrabold uppercase tracking-widest text-neutral-500">Profesional</p>
+              <p class="text-sm font-bold text-white">{{ barberoNombreSeleccionado }}</p>
+            </div>
+            <button (click)="irAPaso(1)" class="ml-3 text-xs font-bold text-acento-500 hover:underline">Cambiar</button>
+          </div>
+        </div>
+
+        <div class="text-center mb-8">
+          <h2 class="text-2xl md:text-3xl font-black text-white">Elige tu <span class="text-acento-500">servicio</span></h2>
+          <p class="text-neutral-400 mt-2">Cada servicio tiene una duración diferente.</p>
+        </div>
+
+        @if (categorias.length === 0) {
+          <p class="text-center text-neutral-500 py-12">Cargando servicios...</p>
+        }
+
+        <div class="space-y-10">
+          @for (categoria of categorias; track categoria.nombre) {
+            <div>
+              <h3 class="text-xs font-extrabold uppercase tracking-[0.25em] text-neutral-500 mb-4">{{ categoria.nombre }}</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @for (s of categoria.servicios; track s.id) {
+                  <button (click)="seleccionarServicio(s)"
+                          class="group relative text-left rounded-2xl p-5 border transition-all duration-300 hover:-translate-y-0.5 flex gap-4"
+                          [ngClass]="servicioSeleccionado?.id === s.id ? 'bg-acento-500/[0.07] border-acento-500 ring-1 ring-acento-500/40' : 'vidrio hover:border-white/25'">
+                    <div class="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-colors"
+                         [ngClass]="servicioSeleccionado?.id === s.id ? 'bg-acento-500 text-sobre-acento' : 'bg-white/5 text-acento-500 group-hover:bg-acento-500/15'">
+                      <app-icono [nombre]="iconoDe(s)" class="w-6 h-6" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-start justify-between gap-3">
+                        <h4 class="font-bold text-white leading-snug">{{ s.nombre }}</h4>
+                        @if (servicioSeleccionado?.id === s.id) {
+                          <span class="w-5 h-5 shrink-0 rounded-full bg-acento-500 text-sobre-acento flex items-center justify-center">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 13l4 4L19 7"></path></svg>
+                          </span>
+                        }
+                      </div>
+                      <p class="text-sm text-neutral-400 mt-1 line-clamp-2">{{ s.descripcion }}</p>
+                      <div class="flex items-center gap-4 mt-3">
+                        <span class="text-lg font-black text-white">
+                          @if (s.precioDesde) { <span class="text-xs font-bold text-neutral-500">Desde </span> }
+                          {{ s.precio | currency:'COP':'symbol-narrow':'1.0-0' }}
+                        </span>
+                        <span class="flex items-center gap-1 text-xs font-bold text-neutral-500">
+                          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          {{ s.duracionMinutos | duracion }}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="flex justify-between mt-10">
+          <button (click)="irAPaso(1)" class="inline-flex items-center gap-1.5 text-sm font-bold text-neutral-400 hover:text-white transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Atrás</button>
+        </div>
+      </section>
+    }
+
+    <!-- ============ PASO 3: HORARIO ============ -->
+    @if (paso === 3) {
+      <section class="animate-in fade-in slide-in-from-right-8 duration-500">
+        <div class="grid grid-cols-1 lg:grid-cols-[1fr_1.15fr] gap-6">
+          <!-- Columna izquierda: resumen + calendario -->
+          <div class="space-y-4">
+            <div class="vidrio rounded-2xl p-4 flex items-center gap-4">
+              <span class="w-12 h-12 rounded-xl bg-acento-500/15 text-acento-500 flex items-center justify-center font-black shrink-0">@if (barberoSeleccionado === CUALQUIERA) {<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>} @else {{{ iniciales(barberoNombreSeleccionado) }}}</span>
+              <div class="min-w-0 flex-1">
+                <p class="text-[10px] font-extrabold uppercase tracking-widest text-neutral-500">Profesional</p>
+                <p class="font-bold text-white truncate">{{ barberoNombreSeleccionado }}</p>
+                <p class="text-xs text-acento-500 truncate">{{ servicioSeleccionado?.nombre }} · {{ servicioSeleccionado?.duracionMinutos | duracion }}</p>
+              </div>
+              <button (click)="irAPaso(2)" class="text-xs font-bold text-neutral-400 hover:text-white shrink-0">Cambiar</button>
+            </div>
+
+            <div class="vidrio rounded-3xl p-5 md:p-6">
+              <div class="flex items-center justify-between mb-5">
+                <button (click)="cambiarMes(-1)" [disabled]="!hayMesAnterior" class="w-9 h-9 rounded-full flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent transition-all" aria-label="Mes anterior">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <h3 class="font-bold text-white">{{ tituloMes }}</h3>
+                <button (click)="cambiarMes(1)" [disabled]="!hayMesSiguiente" class="w-9 h-9 rounded-full flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent transition-all" aria-label="Mes siguiente">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+              </div>
+              <div class="grid grid-cols-7 gap-1 mb-2">
+                @for (d of diasSemana; track d) {
+                  <span class="text-center text-[10px] font-extrabold uppercase tracking-wider text-neutral-600">{{ d }}</span>
+                }
+              </div>
+              <div class="grid grid-cols-7 gap-1">
+                @for (celda of celdas; track celda.clave) {
+                  <button (click)="seleccionarDia(celda.clave)" [disabled]="!celda.reservable"
+                          class="relative aspect-square rounded-xl text-sm font-bold transition-all duration-200 flex items-center justify-center"
+                          [ngClass]="celda.clave === diaSeleccionado ? 'bg-acento-500 text-sobre-acento shadow-lg shadow-acento-500/30 scale-105'
+                                     : celda.reservable ? 'text-white hover:bg-white/10'
+                                     : celda.delMes ? 'text-neutral-700 cursor-not-allowed' : 'text-transparent cursor-default'">
+                    {{ celda.fecha.getDate() }}
+                    @if (celda.esHoy && celda.clave !== diaSeleccionado) {
+                      <span class="absolute bottom-1.5 w-1 h-1 rounded-full bg-acento-500"></span>
+                    }
+                  </button>
+                }
+              </div>
+              <div class="flex items-center gap-4 mt-5 text-[11px] text-neutral-500">
+                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-white/70"></span>Disponible</span>
+                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-neutral-700"></span>No disponible</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Columna derecha: horas -->
+          <div class="vidrio rounded-3xl p-5 md:p-6 flex flex-col">
+            <div class="flex items-center justify-between mb-5">
+              <h3 class="font-bold text-white flex items-center gap-2">
+                <svg class="w-5 h-5 text-acento-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Disponibilidad
+              </h3>
+              <span class="text-xs font-bold text-acento-500 capitalize">{{ fechaSeleccionada | date:'EEEE d MMM' }}</span>
+            </div>
+
+            @if (cargandoDisponibilidad) {
+              <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                @for (i of [1,2,3,4,5,6,7,8]; track i) {
+                  <div class="h-11 rounded-xl bg-white/5 animate-pulse"></div>
+                }
+              </div>
+            } @else if (horasDisponibles.length === 0) {
+              <div class="flex-1 flex flex-col items-center justify-center text-center py-10">
+                <svg class="w-10 h-10 text-neutral-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <p class="text-neutral-400 font-medium">No quedan horarios este día.</p>
+                <p class="text-neutral-600 text-sm">Prueba con otra fecha o con otro barbero.</p>
+              </div>
+            } @else {
+              <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                @for (hora of horasDisponibles; track hora.minutos) {
+                  <button (click)="horaSeleccionada = hora"
+                          class="h-11 rounded-xl border text-sm font-bold transition-all duration-200"
+                          [ngClass]="horaSeleccionada?.minutos === hora.minutos ? 'bg-acento-500 text-sobre-acento border-acento-500 shadow-lg shadow-acento-500/25'
+                                     : 'border-white/10 text-neutral-300 hover:border-acento-500/60 hover:text-white'">
+                    {{ hora.etiqueta }}
+                  </button>
+                }
+              </div>
+            }
+
+            <div class="mt-auto pt-6 flex items-center justify-between gap-4 border-t border-white/5 mt-6">
+              <div class="text-sm">
+                <p class="text-[10px] font-extrabold uppercase tracking-widest text-neutral-500">Tu selección</p>
+                @if (horaSeleccionada) {
+                  <p class="font-bold text-white capitalize">{{ fechaSeleccionada | date:'EEE d MMM' }} · {{ horaSeleccionada.etiqueta }}</p>
+                } @else {
+                  <p class="text-neutral-600">Elige una hora</p>
+                }
+              </div>
+              <button (click)="irAPaso(4)" [disabled]="!horaSeleccionada"
+                      class="inline-flex items-center gap-2 bg-acento-500 hover:bg-acento-400 text-sobre-acento font-black text-sm px-6 py-3 rounded-full transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                Continuar
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-8">
+          <button (click)="irAPaso(2)" class="inline-flex items-center gap-1.5 text-sm font-bold text-neutral-400 hover:text-white transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Atrás</button>
+        </div>
+      </section>
+    }
+
+    <!-- ============ PASO 4: CONFIRMAR ============ -->
+    @if (paso === 4) {
+      <section class="animate-in fade-in slide-in-from-right-8 duration-500">
+        <div class="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-6 items-start">
+          <div class="vidrio rounded-3xl p-6 md:p-8">
+            <span class="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full mb-4">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+              Reserva segura
+            </span>
+            <h2 class="text-2xl md:text-3xl font-black text-white mb-1">Tus datos</h2>
+            <p class="text-neutral-400 text-sm mb-8">Los usamos solo para confirmar y recordarte la cita, según nuestra <a routerLink="/politica-de-datos" target="_blank" class="text-neutral-200 underline underline-offset-4 hover:text-white">Política de tratamiento de datos</a>.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label class="block">
+                <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Nombre *</span>
+                <input type="text" [(ngModel)]="clienteNombre" placeholder="Tu nombre" autocomplete="given-name" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors">
+              </label>
+              <label class="block">
+                <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Apellido *</span>
+                <input type="text" [(ngModel)]="clienteApellido" placeholder="Tu apellido" autocomplete="family-name" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors">
+              </label>
+              <label class="block">
+                <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Celular / WhatsApp *</span>
+                <input type="tel" [(ngModel)]="clienteTelefono" placeholder="Ej: 300 123 4567" autocomplete="tel" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors">
+              </label>
+              <label class="block">
+                <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Correo</span>
+                <input type="email" [(ngModel)]="clienteCorreo" placeholder="Tu email" autocomplete="email" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors">
+              </label>
+            </div>
+
+            <div class="flex items-start gap-3 mt-8 bg-acento-500/[0.06] border border-acento-500/20 rounded-2xl p-4">
+              <svg class="w-5 h-5 text-acento-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <p class="text-sm text-neutral-300">Llega <strong class="text-white">10 a 15 minutos antes</strong> para atenderte sin demoras.</p>
+            </div>
+          </div>
+
+          <!-- Resumen -->
+          <aside class="vidrio rounded-3xl p-6 lg:sticky lg:top-28">
+            <p class="text-[10px] font-extrabold uppercase tracking-widest text-neutral-500 mb-4">Tu selección</p>
+            <div class="flex items-center gap-3 pb-5 border-b border-white/10">
+              <span class="w-12 h-12 rounded-xl bg-acento-500/15 text-acento-500 flex items-center justify-center shrink-0">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" /></svg>
+              </span>
+              <div class="min-w-0">
+                <p class="font-bold text-white leading-snug">{{ servicioSeleccionado?.nombre }}</p>
+                <p class="text-xs text-acento-500">con {{ barberoNombreSeleccionado }}</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 py-5 border-b border-white/10">
+              <div class="bg-white/[0.03] rounded-xl p-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-widest text-neutral-500 mb-1">Fecha</p>
+                <p class="text-sm font-bold text-white capitalize">{{ fechaSeleccionada | date:'EEE d MMM' }}</p>
+              </div>
+              <div class="bg-white/[0.03] rounded-xl p-3">
+                <p class="text-[10px] font-extrabold uppercase tracking-widest text-neutral-500 mb-1">Hora</p>
+                <p class="text-sm font-bold text-white">{{ horaSeleccionada?.etiqueta }}</p>
+              </div>
+            </div>
+            <div class="flex items-center justify-between py-5">
+              <span class="text-neutral-400 text-sm">Total {{ servicioSeleccionado?.precioDesde ? '(desde)' : '' }}</span>
+              <span class="text-2xl font-black text-white">{{ servicioSeleccionado?.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+            </div>
+            <button (click)="continuar()" [disabled]="formularioInvalido || isSubmitting"
+                    class="w-full inline-flex items-center justify-center gap-2 bg-acento-500 hover:bg-acento-400 text-sobre-acento font-black py-4 rounded-2xl shadow-lg shadow-acento-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]">
+              @if (isSubmitting) {
+                <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                Reservando...
+              } @else {
+                Confirmar reserva
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+              }
+            </button>
+            <p class="text-center text-[11px] text-neutral-600 mt-3">El pago se realiza en la barbería.</p>
+          </aside>
+        </div>
+
+        <div class="mt-8">
+          <button (click)="irAPaso(3)" class="inline-flex items-center gap-1.5 text-sm font-bold text-neutral-400 hover:text-white transition-colors"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>Atrás</button>
+        </div>
+      </section>
+    }
+
+  } @else {
+    <!-- ============ CONFIRMACIÓN ============ -->
+    <div class="max-w-2xl mx-auto vidrio rounded-[2.5rem] overflow-hidden animate-in zoom-in-95 fade-in duration-500">
+      <div class="p-10 text-center border-b border-white/10 relative">
+        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-acento-400 via-acento-500 to-acento-600"></div>
+        <div class="w-24 h-24 bg-emerald-500/15 rounded-full flex items-center justify-center mx-auto mb-6 text-emerald-400 border-2 border-emerald-500/30 animate-in zoom-in-50 duration-700 delay-200 fill-mode-both">
+          <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+        </div>
+        <h2 class="font-display text-4xl font-black text-white mb-2">¡Reserva exitosa!</h2>
+        <p class="text-neutral-400 text-lg">Tu cita quedó agendada. Te esperamos en {{ cliente.nombre }}.</p>
+      </div>
+
+      <div class="p-8 md:p-10 bg-black/30">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+          <div>
+            <p class="text-neutral-500 text-xs font-bold uppercase mb-1">Servicio</p>
+            <p class="text-white font-bold text-lg">{{ reservaDetalles?.serviceName }}</p>
+          </div>
+          <div>
+            <p class="text-neutral-500 text-xs font-bold uppercase mb-1">Barbero</p>
+            <p class="text-white font-bold text-lg">{{ reservaDetalles?.barberoNombre }}</p>
+          </div>
+          <div>
+            <p class="text-neutral-500 text-xs font-bold uppercase mb-1">Fecha</p>
+            <p class="text-white font-bold text-lg capitalize">{{ reservaDetalles?.fecha | date:'EEEE d MMMM' }}</p>
+          </div>
+          <div>
+            <p class="text-neutral-500 text-xs font-bold uppercase mb-1">Hora</p>
+            <p class="text-acento-500 font-black text-xl">{{ reservaDetalles?.horaStr }}</p>
+          </div>
+        </div>
+
+        @if (cliente.ubicacion; as ubicacion) {
+          <a [href]="ubicacion.mapaUrl" target="_blank" rel="noopener" class="flex items-center gap-3 bg-white/[0.03] border border-white/10 hover:border-white/25 rounded-2xl p-4 mb-8 transition-colors">
+            <svg class="w-5 h-5 text-acento-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <span class="text-sm text-neutral-300">{{ ubicacion.direccion }}</span>
+          </a>
+        }
+
+        <div class="flex flex-col sm:flex-row gap-4 pt-8 border-t border-white/10">
+          @if (cliente.whatsapp) {
+            <button (click)="enviarWhatsApp()" class="flex-1 bg-[#25D366] hover:bg-[#20bd5a] text-white font-black py-4 px-6 rounded-xl transition-all duration-300 active:scale-95 flex items-center justify-center gap-2">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 00-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+              Enviar confirmación
+            </button>
+          }
+          <a routerLink="/mis-citas" class="flex-1 text-center bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 px-6 rounded-xl transition-all duration-300">
+            Ver mis reservas
+          </a>
+          <a routerLink="/" class="flex-1 text-center bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 px-6 rounded-xl transition-all duration-300">
+            Volver al inicio
+          </a>
+        </div>
+      </div>
+    </div>
+  }
+  </div>
+</div>

@@ -1,0 +1,70 @@
+<div class="min-h-screen bg-neutral-950 py-16 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-5xl mx-auto">
+    
+    <!-- Encabezado del Catálogo -->
+    <div class="text-center mb-20">
+      <h1 class="font-display text-4xl md:text-6xl font-black text-white tracking-tight mb-6">NUESTRO <span class="text-acento-500">MENÚ</span></h1>
+      <p class="text-lg md:text-xl text-neutral-400 font-medium max-w-2xl mx-auto">Selecciona tu experiencia. Todos nuestros servicios incluyen diagnóstico técnico y asesoría de imagen personalizada.</p>
+    </div>
+
+    <!-- Iteración de Categorías -->
+    <div class="space-y-20">
+      @for (cat of categorias; track cat.nombre) {
+        <section>
+          
+          <!-- Título de Categoría -->
+          <div class="flex items-center gap-4 mb-8">
+            <div class="bg-acento-500/10 text-acento-500 p-3 rounded-2xl border border-acento-500/20">
+              <app-icono [nombre]="cat.icono" class="h-8 w-8" />
+            </div>
+            <h2 class="text-3xl font-black text-white tracking-tight">{{ cat.nombre }}</h2>
+          </div>
+
+          <!-- Cuadrícula de Servicios -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            @for (servicio of cat.servicios; track servicio.id) {
+              
+              <!-- Tarjeta de Servicio Oscura -->
+              <div appRevelar class="vidrio rounded-3xl p-6 md:p-8 hover:border-acento-500/30 transition-all duration-300 group relative overflow-hidden flex flex-col justify-between">
+                
+                <!-- Borde indicador de destacado -->
+                @if (servicio.destacado) {
+                  <div class="absolute right-0 top-0 w-24 h-24 bg-acento-500/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-150 duration-500"></div>
+                  <div class="absolute right-4 top-4">
+                    <span class="bg-detalle-500/15 text-detalle-300 border border-detalle-400/40 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full">Popular</span>
+                  </div>
+                }
+
+                <div>
+                  <h3 class="font-black text-white text-xl md:text-2xl tracking-tight mb-3 pr-16">{{ servicio.nombre }}</h3>
+                  
+                  <p class="text-neutral-400 font-medium leading-relaxed mb-6">
+                    {{ servicio.descripcion }}
+                  </p>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6 border-t border-neutral-800 pt-6 mt-auto">
+                  
+                  <div class="flex flex-col gap-1">
+                    <span class="text-sm font-bold text-neutral-500 uppercase tracking-wider">{{ servicio.precioDesde ? 'Desde' : 'Inversión' }}</span>
+                    <span class="text-3xl font-black text-white">{{ servicio.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+                    <div class="flex items-center gap-1.5 text-xs font-bold text-neutral-400 mt-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      {{ servicio.duracionMinutos | duracion }}
+                    </div>
+                  </div>
+
+                  <button (click)="agendarServicio(servicio)" class="w-full sm:w-auto bg-acento-600 hover:bg-acento-500 text-sobre-acento font-black py-4 px-8 rounded-full transition-all duration-300 hover:shadow-lg hover:shadow-acento-500/30 hover:-translate-y-1 active:scale-95 whitespace-nowrap">
+                    Agendar Ahora
+                  </button>
+                  
+                </div>
+              </div>
+            }
+          </div>
+        </section>
+      }
+    </div>
+
+  </div>
+</div>
