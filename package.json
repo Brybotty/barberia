@@ -4,13 +4,15 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "demo": "npm --prefix functions run build && firebase emulators:exec \"ng serve --configuration emulador --port 4200\" --project demo-acicale --ui --import ./demo-datos --export-on-exit ./demo-datos",
-    "demo:sembrar": "node functions/demo/sembrar.mjs",
+    "demo": "firebase emulators:exec \"ng serve --configuration emulador --port 4200\" --project demo-acicale --only auth,firestore --ui --import ./demo-datos --export-on-exit ./demo-datos",
+    "demo:sembrar": "node scripts/sembrar-demo.mjs",
     "start:emulador": "ng serve --configuration emulador",
-    "emuladores": "firebase emulators:start --project demo-acicale",
+    "emuladores": "firebase emulators:start --project demo-acicale --only auth,firestore",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "test:reglas": "firebase emulators:exec --only firestore --project demo-reglas \"node pruebas/reglas.mjs\"",
+    "test:funciones": "npm --prefix functions test"
   },
   "prettier": {
     "printWidth": 100,
@@ -42,6 +44,7 @@
     "@angular/build": "^20.2.1",
     "@angular/cli": "^20.2.1",
     "@angular/compiler-cli": "^20.2.0",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/jasmine": "~5.1.0",
     "@types/node": "^20.17.19",
     "autoprefixer": "^10.6.1",

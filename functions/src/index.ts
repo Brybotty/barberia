@@ -1,368 +1,170 @@
 /**
- * Cloud Functions de la tienda.
+ * Cloud Functions de la barbería: correos de citas por medio de Resend (https://resend.com).
  *
- * Pedidos e inventario:
- * - crearPedido (callable): arma el pedido con los precios del catálogo, calcula el envío y
- *   descuenta el inventario, todo en una transacción (no se vende lo que no hay).
- * - cancelarPedido (callable): cancela y devuelve las unidades al inventario.
+ * - avisarCitaNueva (al crearse una cita): confirmación al cliente (con la cita para su calendario)
+ *   y aviso al barbero.
+ * - avisarCambioDeCita (al actualizarse): si se cancela o cambia de día/hora, avisa a los dos.
+ * - recordarCitas (todos los días a las 6:00 p. m., hora de Colombia): recordatorio a quien tiene cita mañana.
  *
- * Pagos en línea con Wompi (Bancolombia):
- * - iniciarPagoWompi (callable): firma el monto del pedido y devuelve el enlace del checkout.
- * - confirmarPagoWompi (callable): al volver del checkout consulta la transacción en Wompi
- *   (por si el webhook tarda).
- * - webhookWompi (HTTP): recibe los eventos de Wompi. Es la fuente de verdad del estado del pago.
- * - simularPagoWompi (callable): SOLO en los emuladores, para la demo sin llaves reales.
+ * Solo se avisa de citas que aún no pasan. Si un correo falla, la cita no se afecta: queda en el log.
  *
- * Configuración (ver README): WOMPI_PUBLIC_KEY en functions/.env y los secretos
- * WOMPI_INTEGRITY_SECRET y WOMPI_EVENTS_SECRET con `firebase functions:secrets:set`.
+ * Configuración (ver README): la llave de Resend en el secreto RESEND_API_KEY
+ * (`firebase functions:secrets:set RESEND_API_KEY`) y los datos del negocio en functions/.env.<proyecto>.
  */
 import { initializeApp } from 'firebase-admin/app';
-import { DocumentReference, FieldValue, Transaction, getFirestore } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
+import { Cita, Correo, Negocio, debeAvisar, emailValido, mananaEnColombia, necesitaRecordatorio, tipoDeCambio } from './correo';
 import {
-  ESTADO_WOMPI, EstadoPago, EventoWompi, TransaccionWompi, eventoValido, firmaIntegridad, pedidoDeReferencia, urlApi,
-  urlCheckout,
-} from './wompi';
-import {
-  Descuento, ErrorPedido, ItemPedido, Producto, conDefectos, costoEnvio, entregaActiva, metodosPara, moverStock,
-  prepararItems, validarSolicitud,
-} from './pedidos';
+  correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio,
+  correoReprogramadaBarbero, correoReprogramadaCliente,
+} from './mensajes';
 
 initializeApp();
-const db = getFirestore();
+// La base de datos está en nam5 (Estados Unidos): las funciones quedan en la misma zona.
+setGlobalOptions({ region: 'us-central1', maxInstances: 5 });
 
-// Tope de instancias: evita sorpresas en la factura si alguien abusa de las funciones.
-// invoker 'public': las callable y el webhook deben poder llamarse desde internet (cada función
-// valida por dentro la sesión o la firma). Explícito para que cada deploy lo vuelva a aplicar.
-setGlobalOptions({ maxInstances: 5, invoker: 'public' });
+const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
+const CORREO_REMITENTE = defineString('CORREO_REMITENTE', {
+  description: 'Remitente de los correos, p. ej. "El Acicale <citas@tudominio.com>" (el dominio debe estar verificado en Resend).',
+});
+const NEGOCIO_NOMBRE = defineString('NEGOCIO_NOMBRE');
+const NEGOCIO_DIRECCION = defineString('NEGOCIO_DIRECCION');
+const NEGOCIO_MAPA_URL = defineString('NEGOCIO_MAPA_URL');
+const NEGOCIO_INSTAGRAM = defineString('NEGOCIO_INSTAGRAM', { default: '' });
+const URL_SITIO = defineString('URL_SITIO', { default: '', description: 'Dirección pública de la página, sin / al final.' });
 
-// Mientras no sea una llave real (pub_test_... o pub_prod_...), el pago en línea responde "aún no está configurado".
-const WOMPI_PUBLIC_KEY = defineString('WOMPI_PUBLIC_KEY', { description: 'Llave pública de Wompi (pub_test_... o pub_prod_...)', default: '' });
-const WOMPI_INTEGRITY_SECRET = defineSecret('WOMPI_INTEGRITY_SECRET');
-const WOMPI_EVENTS_SECRET = defineSecret('WOMPI_EVENTS_SECRET');
+/** Valor de barberoId cuando se reservó sin barberos registrados (igual que en la app). */
+const BARBERO_CUALQUIERA = 'cualquiera';
 
-/** Pago simulado: solo con los emuladores y WOMPI_SIMULADO=true (functions/.env.demo-acicale). */
-const pagoSimulado = () => process.env.FUNCTIONS_EMULATOR === 'true' && process.env.WOMPI_SIMULADO === 'true';
-
-interface Pedido {
-  userId: string;
-  cliente: { nombre: string; telefono: string; email: string; documento?: string };
-  entrega: { tipo: 'recoger' | 'local' | 'nacional' };
-  items: ItemPedido[];
-  total: number;
-  estado: string;
-  stockDescontado?: Descuento[];
-  stockDevuelto?: boolean;
-  pago: { metodo: string; estado: EstadoPago; referencia?: string; intentos?: number; transaccionId?: string };
-}
-
-const ID_VALIDO = /^[A-Za-z0-9]{10,40}$/;
-const ahora = () => new Date().toISOString();
-
-async function esAdmin(uid: string): Promise<boolean> {
-  const perfil = await db.doc(`usuarios/${uid}`).get();
-  return perfil.get('rol') === 'admin';
-}
-
-/** Convierte los errores de negocio en mensajes para el cliente. */
-function comoHttps(error: unknown): never {
-  if (error instanceof ErrorPedido) throw new HttpsError('failed-precondition', error.message);
-  throw error;
-}
-
-/** Mueve el stock de varios productos dentro de una transacción y registra los movimientos. */
-function aplicarInventario(
-  tx: Transaction,
-  productos: Map<string, { ref: DocumentReference; datos?: Producto }>,
-  cambios: Descuento[],
-  signo: 1 | -1,
-  movimiento: { tipo: 'venta' | 'cancelacion'; pedidoId: string },
-) {
-  const porProducto = new Map<string, Descuento[]>();
-  for (const c of cambios) porProducto.set(c.productoId, [...(porProducto.get(c.productoId) ?? []), c]);
-
-  for (const [productoId, lista] of porProducto) {
-    const producto = productos.get(productoId);
-    if (!producto?.datos?.controlStock) continue;
-    const { campos, resultados } = moverStock(producto.datos, lista.map(c => ({ opcion: c.opcion, delta: signo * c.cantidad })));
-    tx.update(producto.ref, campos);
-    for (const r of resultados) {
-      tx.set(db.collection('movimientosInventario').doc(), {
-        productoId, producto: producto.datos.nombre, opcion: r.opcion, cantidad: r.delta, stockResultante: r.stockResultante,
-        tipo: movimiento.tipo, pedidoId: movimiento.pedidoId, usuario: 'Tienda en línea', fecha: ahora(),
-      });
-    }
-  }
-}
-
-async function leerProductos(tx: Transaction, ids: string[]) {
-  const refs = [...new Set(ids)].filter(id => /^[A-Za-z0-9]{1,40}$/.test(id)).map(id => db.doc(`productos/${id}`));
-  const snaps = refs.length ? await tx.getAll(...refs) : [];
-  return new Map(snaps.map(s => [s.id, { ref: s.ref, datos: s.exists ? (s.data() as Producto) : undefined }]));
-}
+type Destino = 'cliente' | 'barbero';
 
 // ---------------------------------------------------------------------------
-// Pedidos
-// ---------------------------------------------------------------------------
 
-export const crearPedido = onCall(async request => {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', 'Inicia sesión para hacer tu pedido.');
+export const avisarCitaNueva = onDocumentCreated({ document: 'citas/{citaId}', secrets: [RESEND_API_KEY] }, async event => {
+  const cita = event.data?.data() as Cita | undefined;
+  const citaId = event.params.citaId;
+  if (!cita || !debeAvisar(cita)) return;
 
-  try {
-    const solicitud = validarSolicitud(request.data);
-    const pedidoRef = db.collection('pedidos').doc();
-
-    await db.runTransaction(async tx => {
-      const ajustes = await tx.get(db.doc('ajustes/sitio'));
-      const productos = await leerProductos(tx, solicitud.items.map(i => i.productoId));
-
-      const tienda = conDefectos(ajustes.get('tienda'));
-      if (!tienda.activa) throw new ErrorPedido('La tienda está cerrada en este momento.');
-      if (!entregaActiva(solicitud.entrega.tipo, tienda)) throw new ErrorPedido('Esa forma de entrega ya no está disponible.');
-      if (!metodosPara(solicitud.entrega.tipo, tienda).includes(solicitud.metodo)) {
-        throw new ErrorPedido('Ese método de pago no está disponible para esta forma de entrega.');
-      }
-
-      const { items, subtotal, descuentos } = prepararItems(solicitud.items, new Map([...productos].map(([id, p]) => [id, p.datos])));
-      const envio = costoEnvio(solicitud.entrega.tipo, subtotal, tienda);
-
-      aplicarInventario(tx, productos, descuentos, -1, { tipo: 'venta', pedidoId: pedidoRef.id });
-      tx.set(pedidoRef, {
-        userId: uid,
-        cliente: solicitud.cliente,
-        entrega: solicitud.entrega,
-        items,
-        subtotal,
-        envio,
-        total: subtotal + envio,
-        pago: { metodo: solicitud.metodo, estado: 'pendiente' },
-        estado: 'pendiente',
-        stockDescontado: descuentos,
-        creadoEn: ahora(),
-        autorizacionDatos: ahora(),
-      });
-    });
-
-    logger.info('Pedido creado', { pedidoId: pedidoRef.id });
-    return { pedidoId: pedidoRef.id };
-  } catch (error) {
-    comoHttps(error);
-  }
+  const negocio = datosDelNegocio();
+  const emailBarbero = await emailDelBarbero(cita.barberoId);
+  await enviarTodos(citaId, 'nueva', [
+    emailValido(cita.userEmail) && ['cliente', correoCliente(cita, citaId, negocio)],
+    emailBarbero && ['barbero', correoBarbero(cita, citaId, negocio, emailBarbero)],
+  ]);
 });
 
-export const cancelarPedido = onCall(async request => {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
-  const { pedidoId } = (request.data ?? {}) as { pedidoId?: string };
-  if (!pedidoId || !ID_VALIDO.test(pedidoId)) throw new HttpsError('invalid-argument', 'Pedido no válido.');
-  const admin = await esAdmin(uid);
-  const pedidoRef = db.doc(`pedidos/${pedidoId}`);
+export const avisarCambioDeCita = onDocumentUpdated({ document: 'citas/{citaId}', secrets: [RESEND_API_KEY] }, async event => {
+  const antes = event.data?.before.data() as Cita | undefined;
+  const despues = event.data?.after.data() as Cita | undefined;
+  const citaId = event.params.citaId;
+  if (!antes || !despues) return;
+  const cambio = tipoDeCambio(antes, despues);
+  if (!cambio) return;
 
-  await db.runTransaction(async tx => {
-    const snap = await tx.get(pedidoRef);
-    if (!snap.exists) throw new HttpsError('not-found', 'No encontramos el pedido.');
-    const pedido = snap.data() as Pedido;
-    if (pedido.estado === 'cancelado') return;
-    if (!admin) {
-      if (pedido.userId !== uid) throw new HttpsError('permission-denied', 'Este pedido no es tuyo.');
-      if (pedido.estado !== 'pendiente' || pedido.pago.estado === 'aprobado') {
-        throw new HttpsError('failed-precondition', 'Ya estamos preparando tu pedido. Escríbenos para cancelarlo.');
-      }
-    }
-    if (pedido.estado === 'entregado') throw new HttpsError('failed-precondition', 'Un pedido entregado no se puede cancelar.');
-
-    const devolver = pedido.stockDevuelto ? [] : pedido.stockDescontado ?? [];
-    const productos = await leerProductos(tx, devolver.map(d => d.productoId));
-    aplicarInventario(tx, productos, devolver, 1, { tipo: 'cancelacion', pedidoId });
-    tx.update(pedidoRef, { estado: 'cancelado', stockDevuelto: true, canceladoEn: ahora(), canceladoPor: admin ? 'admin' : 'cliente' });
-  });
-  return { ok: true };
+  const negocio = datosDelNegocio();
+  const emailBarbero = await emailDelBarbero(despues.barberoId);
+  const conCorreo = emailValido(despues.userEmail);
+  await enviarTodos(citaId, cambio, cambio === 'cancelada'
+    ? [
+        conCorreo && ['cliente', correoCanceladaCliente(antes, citaId, negocio)],
+        emailBarbero && ['barbero', correoCanceladaBarbero(antes, citaId, negocio, emailBarbero)],
+      ]
+    : [
+        conCorreo && ['cliente', correoReprogramadaCliente(antes, despues, citaId, negocio)],
+        emailBarbero && ['barbero', correoReprogramadaBarbero(antes, despues, citaId, negocio, emailBarbero)],
+      ]);
 });
 
+export const recordarCitas = onSchedule(
+  { schedule: '0 18 * * *', timeZone: 'America/Bogota', secrets: [RESEND_API_KEY], timeoutSeconds: 300 },
+  async () => {
+    const dia = mananaEnColombia();
+    const citas = await getFirestore().collection('citas').where('dia', '==', dia).get();
+    const negocio = datosDelNegocio();
+    let enviados = 0;
+    for (const doc of citas.docs) {
+      const cita = doc.data() as Cita;
+      if (!necesitaRecordatorio(cita)) continue;
+      // Uno a la vez: Resend acepta 2 envíos por segundo.
+      await enviarTodos(doc.id, 'recordatorio', [['cliente', correoRecordatorio(cita, doc.id, negocio)]]);
+      enviados++;
+    }
+    logger.info('Recordatorios del día', { dia, citas: citas.size, enviados });
+  },
+);
+
 // ---------------------------------------------------------------------------
-// Pagos con Wompi
-// ---------------------------------------------------------------------------
 
-export const iniciarPagoWompi = onCall({ secrets: [WOMPI_INTEGRITY_SECRET] }, async request => {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', 'Inicia sesión para pagar.');
-
-  const { pedidoId, origen } = (request.data ?? {}) as { pedidoId?: string; origen?: string };
-  if (!pedidoId || !ID_VALIDO.test(pedidoId)) throw new HttpsError('invalid-argument', 'Pedido no válido.');
-  if (!origen || !/^https?:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(origen)) throw new HttpsError('invalid-argument', 'Origen no válido.');
-
-  const llavePublica = WOMPI_PUBLIC_KEY.value();
-  if (!llavePublica.startsWith('pub_')) throw new HttpsError('failed-precondition', 'El pago en línea aún no está configurado.');
-
-  const pedidoRef = db.doc(`pedidos/${pedidoId}`);
-  const datos = await db.runTransaction(async tx => {
-    const snap = await tx.get(pedidoRef);
-    if (!snap.exists) throw new HttpsError('not-found', 'No encontramos el pedido.');
-    const pedido = snap.data() as Pedido;
-    if (pedido.userId !== uid) throw new HttpsError('permission-denied', 'Este pedido no es tuyo.');
-    if (pedido.pago.metodo !== 'en-linea') throw new HttpsError('failed-precondition', 'Este pedido no se paga en línea.');
-    if (pedido.estado === 'cancelado') throw new HttpsError('failed-precondition', 'El pedido está cancelado.');
-    if (pedido.pago.estado === 'aprobado') throw new HttpsError('failed-precondition', 'Este pedido ya está pagado.');
-
-    const tienda = conDefectos((await tx.get(db.doc('ajustes/sitio'))).get('tienda'));
-    if (!tienda.pagos.enLinea) throw new HttpsError('failed-precondition', 'El pago en línea está desactivado.');
-
-    // Cada intento lleva su referencia: Wompi no admite repetirla.
-    const intentos = (pedido.pago.intentos ?? 0) + 1;
-    const referencia = `${pedidoId}-${intentos}`;
-    tx.update(pedidoRef, {
-      'pago.estado': 'pendiente',
-      'pago.referencia': referencia,
-      'pago.intentos': intentos,
-      'pago.actualizadoEn': ahora(),
-    });
-    return { referencia, total: pedido.total, cliente: pedido.cliente };
-  });
-
-  if (pagoSimulado()) {
-    return { url: `${origen}/tienda/pago-simulado/${pedidoId}` };
-  }
-
-  // El total lo calculó crearPedido con el catálogo: el navegador no puede cambiarlo.
-  const montoCentavos = Math.round(datos.total * 100);
+function datosDelNegocio(): Negocio {
   return {
-    url: urlCheckout({
-      llavePublica,
-      referencia: datos.referencia,
-      montoCentavos,
-      firma: firmaIntegridad(datos.referencia, montoCentavos, 'COP', WOMPI_INTEGRITY_SECRET.value()),
-      redirectUrl: `${origen}/tienda/pedido/${pedidoId}`,
-      cliente: {
-        email: datos.cliente.email,
-        nombre: datos.cliente.nombre,
-        telefono: datos.cliente.telefono,
-        documento: datos.cliente.documento,
-      },
-    }),
+    nombre: NEGOCIO_NOMBRE.value(),
+    direccion: NEGOCIO_DIRECCION.value(),
+    mapaUrl: NEGOCIO_MAPA_URL.value(),
+    instagram: NEGOCIO_INSTAGRAM.value(),
+    urlSitio: URL_SITIO.value().replace(/\/+$/, ''),
   };
-});
+}
 
-export const confirmarPagoWompi = onCall(async request => {
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
-  const { pedidoId, transaccionId } = (request.data ?? {}) as { pedidoId?: string; transaccionId?: string };
-  if (!pedidoId || !ID_VALIDO.test(pedidoId) || !transaccionId || !/^[\w-]{5,60}$/.test(transaccionId)) {
-    throw new HttpsError('invalid-argument', 'Datos no válidos.');
-  }
+async function emailDelBarbero(barberoId: string): Promise<string | null> {
+  if (!barberoId || barberoId === BARBERO_CUALQUIERA) return null;
+  const perfil = await getFirestore().doc(`barberos/${barberoId}`).get();
+  const email = perfil.get('emailAsociado') as string | undefined;
+  return emailValido(email) ? email.trim() : null;
+}
 
-  const pedido = await db.doc(`pedidos/${pedidoId}`).get();
-  if (!pedido.exists) throw new HttpsError('not-found', 'No encontramos el pedido.');
-  if (pedido.get('userId') !== uid && !(await esAdmin(uid))) throw new HttpsError('permission-denied', 'Este pedido no es tuyo.');
-
-  // Los pagos simulados ya quedaron aplicados; no existen en Wompi.
-  if (pagoSimulado() && transaccionId.startsWith('SIM-')) return { estado: pedido.get('pago.estado') };
-
-  // La consulta de una transacción en Wompi es pública (no usa llaves privadas).
-  const respuesta = await fetch(`${urlApi(WOMPI_PUBLIC_KEY.value())}/transactions/${encodeURIComponent(transaccionId)}`);
-  if (!respuesta.ok) throw new HttpsError('unavailable', 'No pudimos consultar el pago en Wompi.');
-  const { data } = (await respuesta.json()) as { data: TransaccionWompi };
-  if (pedidoDeReferencia(data?.reference) !== pedidoId) throw new HttpsError('invalid-argument', 'La transacción no es de este pedido.');
-
-  return { estado: await aplicarTransaccion(data) };
-});
-
-export const webhookWompi = onRequest({ secrets: [WOMPI_EVENTS_SECRET] }, async (req, res) => {
-  if (req.method !== 'POST') {
-    res.status(405).send('Método no permitido');
+/** Envía los correos (los vacíos se ignoran) y deja en el log el resultado de cada uno. */
+async function enviarTodos(citaId: string, motivo: string, lista: (false | null | '' | undefined | [Destino, Correo])[]) {
+  const correos = lista.filter((x): x is [Destino, Correo] => !!x);
+  if (correos.length === 0) {
+    logger.info('Cita sin correos a quién avisar', { citaId, motivo });
     return;
   }
-  const evento = req.body as EventoWompi;
-  if (!eventoValido(evento, WOMPI_EVENTS_SECRET.value())) {
-    logger.warn('Evento de Wompi con firma inválida', { event: evento?.event });
-    res.status(401).send('Firma inválida');
-    return;
-  }
-  if (evento.event !== 'transaction.updated') {
-    res.status(200).send('Ignorado');
-    return;
-  }
-  try {
-    const estado = await aplicarTransaccion(evento.data['transaction'] as TransaccionWompi);
-    res.status(200).json({ estado });
-  } catch (error) {
-    // Un 500 hace que Wompi reintente más tarde.
-    logger.error('Error procesando el evento de Wompi', error);
-    res.status(500).send('Error');
-  }
-});
-
-/** Demo sin llaves reales: aprueba o rechaza el pago como lo haría Wompi. Solo en los emuladores. */
-export const simularPagoWompi = onCall(async request => {
-  if (!pagoSimulado()) throw new HttpsError('failed-precondition', 'El pago simulado solo existe en los emuladores.');
-  const uid = request.auth?.uid;
-  if (!uid) throw new HttpsError('unauthenticated', 'Inicia sesión.');
-  const { pedidoId, aprobar, medio } = (request.data ?? {}) as { pedidoId?: string; aprobar?: boolean; medio?: string };
-  if (!pedidoId || !ID_VALIDO.test(pedidoId)) throw new HttpsError('invalid-argument', 'Pedido no válido.');
-
-  const snap = await db.doc(`pedidos/${pedidoId}`).get();
-  const pedido = snap.data() as Pedido | undefined;
-  if (!pedido || pedido.userId !== uid) throw new HttpsError('permission-denied', 'Este pedido no es tuyo.');
-  if (!pedido.pago.referencia) throw new HttpsError('failed-precondition', 'Primero inicia el pago.');
-
-  const transaccion: TransaccionWompi = {
-    id: `SIM-${Date.now()}`,
-    status: aprobar ? 'APPROVED' : 'DECLINED',
-    reference: pedido.pago.referencia,
-    amount_in_cents: Math.round(pedido.total * 100),
-    currency: 'COP',
-    payment_method_type: ['CARD', 'NEQUI', 'PSE', 'BANCOLOMBIA_TRANSFER'].includes(medio ?? '') ? medio : 'CARD',
-  };
-  return { transaccionId: transaccion.id, estado: await aplicarTransaccion(transaccion) };
-});
-
-/**
- * Lleva el estado de una transacción de Wompi al pedido. Es idempotente: el webhook y la
- * consulta al volver del checkout pueden aplicar la misma transacción sin problema.
- */
-async function aplicarTransaccion(transaccion: TransaccionWompi): Promise<EstadoPago | null> {
-  const pedidoId = pedidoDeReferencia(transaccion?.reference);
-  if (!pedidoId) {
-    logger.warn('Transacción con referencia desconocida', { referencia: transaccion?.reference });
-    return null;
-  }
-  const pedidoRef = db.doc(`pedidos/${pedidoId}`);
-
-  return db.runTransaction(async tx => {
-    const snap = await tx.get(pedidoRef);
-    if (!snap.exists) {
-      logger.warn('Transacción de un pedido que no existe', { pedidoId, transaccion: transaccion.id });
-      return null;
-    }
-    const pedido = snap.data() as Pedido;
-
-    // Ya pagado con otra transacción: no dejar que un intento viejo lo cambie.
-    if (pedido.pago.estado === 'aprobado' && pedido.pago.transaccionId && pedido.pago.transaccionId !== transaccion.id) {
-      return pedido.pago.estado;
-    }
-
-    let estado = ESTADO_WOMPI[transaccion.status] ?? 'error';
-    // Un rechazo de un intento anterior no debe pisar el intento en curso.
-    if (estado !== 'aprobado' && pedido.pago.referencia && pedido.pago.referencia !== transaccion.reference) {
-      return pedido.pago.estado;
-    }
-    const montoEsperado = Math.round(pedido.total * 100);
-    if (estado === 'aprobado' && (transaccion.currency !== 'COP' || transaccion.amount_in_cents !== montoEsperado)) {
-      logger.error('El monto pagado no coincide con el pedido', { pedidoId, pagado: transaccion.amount_in_cents, esperado: montoEsperado });
-      estado = 'error';
-    }
-
-    tx.update(pedidoRef, {
-      'pago.estado': estado,
-      'pago.transaccionId': transaccion.id,
-      'pago.medio': transaccion.payment_method_type ?? FieldValue.delete(),
-      'pago.actualizadoEn': ahora(),
-      // Pagado = confirmado; el admin lo ve listo para preparar.
-      ...(estado === 'aprobado' && pedido.estado === 'pendiente' ? { estado: 'confirmado' } : {}),
-    });
-    return estado;
+  const resultados = await Promise.allSettled(correos.map(([, correo]) => enviar(correo)));
+  resultados.forEach((resultado, i) => {
+    // Sin direcciones en los logs: basta con saber a quién (cliente o barbero) y la cita.
+    const datos = { citaId, motivo, para: correos[i][0] };
+    if (resultado.status === 'fulfilled') logger.info('Correo enviado', { ...datos, id: resultado.value });
+    else logger.error('No se pudo enviar el correo', { ...datos, error: String(resultado.reason) });
   });
+}
+
+const esperar = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/** Envía por la API de Resend y devuelve el id del correo. Reintenta si Resend pide bajar el ritmo (429). */
+async function enviar(correo: Correo, intento = 1): Promise<string> {
+  // En los emuladores no sale nada: se muestra en el log.
+  if (process.env.FUNCTIONS_EMULATOR === 'true') {
+    logger.info('[emulador] Correo no enviado', { asunto: correo.asunto, adjuntos: correo.adjuntos?.length ?? 0 });
+    return 'emulador';
+  }
+  const respuesta = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY.value()}`,
+      'Content-Type': 'application/json',
+      // Si el mismo correo se intenta dos veces (reintento del trigger), Resend lo envía una sola.
+      'Idempotency-Key': correo.clave,
+    },
+    body: JSON.stringify({
+      from: CORREO_REMITENTE.value(),
+      to: [correo.para],
+      subject: correo.asunto,
+      html: correo.html,
+      text: correo.texto,
+      ...(correo.responderA ? { reply_to: correo.responderA } : {}),
+      ...(correo.adjuntos ? { attachments: correo.adjuntos } : {}),
+    }),
+  });
+  const cuerpo = await respuesta.text();
+  if (respuesta.status === 429 && intento < 4) {
+    await esperar(800 * intento);
+    return enviar(correo, intento + 1);
+  }
+  if (!respuesta.ok) throw new Error(`Resend respondió ${respuesta.status}: ${cuerpo.slice(0, 300)}`);
+  return (JSON.parse(cuerpo) as { id?: string }).id ?? '';
 }

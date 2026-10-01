@@ -13,16 +13,10 @@ import { claveDia, diaDeCita } from '../../../core/utils/horario';
 import { AdminCitasComponent } from '../admin-citas/admin-citas.component';
 import { AdminServiciosComponent } from '../admin-servicios/admin-servicios.component';
 import { AdminBarberosComponent } from '../admin-barberos/admin-barberos.component';
-import { AdminProductosComponent } from '../admin-productos/admin-productos.component';
-import { AdminPedidosComponent } from '../admin-pedidos/admin-pedidos.component';
 import { AdminAjustesComponent } from '../admin-ajustes/admin-ajustes.component';
 import { AdminRendimientoComponent } from '../admin-rendimiento/admin-rendimiento.component';
-import { PedidosService } from '../../../core/services/pedidos.service';
-import { ProductosService } from '../../../core/services/productos.service';
-import { existencias } from '../../../core/services/inventario.service';
-import { STOCK_BAJO } from '../../../core/models/producto.model';
 
-type Tab = 'dashboard' | 'usuarios' | 'barberos' | 'citas' | 'rendimiento' | 'servicios' | 'tienda' | 'pedidos' | 'ajustes';
+type Tab = 'dashboard' | 'usuarios' | 'barberos' | 'citas' | 'rendimiento' | 'servicios' | 'ajustes';
 
 interface Pestana {
   id: Tab;
@@ -37,12 +31,10 @@ const PESTANAS: Pestana[] = [
   { id: 'dashboard', texto: 'Dashboard', corto: 'Inicio', icono: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
   { id: 'citas', texto: 'Citas (Calendario)', corto: 'Citas', icono: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { id: 'rendimiento', texto: 'Cortes y ganancias', corto: 'Ganancias', icono: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-  { id: 'pedidos', texto: 'Pedidos', corto: 'Pedidos', icono: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
-  { id: 'tienda', texto: 'Tienda & Productos', corto: 'Tienda', icono: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z' },
   { id: 'servicios', texto: 'Servicios & Precios', corto: 'Servicios', icono: 'M6.2 20.2a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4Zm11.6 0a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4ZM8.1 15.4 16.4 3.2M15.9 15.4 7.6 3.2M12 9.3l.01.01' },
   { id: 'barberos', texto: 'Staff & Barberos', corto: 'Staff', icono: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
   { id: 'usuarios', texto: 'Usuarios & Roles', corto: 'Usuarios', icono: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
-  { id: 'ajustes', texto: 'Ajustes (cursos, pagos)', corto: 'Ajustes', icono: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+  { id: 'ajustes', texto: 'Ajustes (cursos)', corto: 'Ajustes', icono: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z' },
 ];
 
 @Component({
@@ -50,7 +42,7 @@ const PESTANAS: Pestana[] = [
   standalone: true,
   imports: [
     CommonModule, RouterLink, AdminCitasComponent, AdminServiciosComponent, AdminBarberosComponent,
-    AdminProductosComponent, AdminPedidosComponent, AdminAjustesComponent, AdminRendimientoComponent,
+    AdminAjustesComponent, AdminRendimientoComponent,
   ],
   template: `
     <div class="flex h-screen bg-neutral-900 text-white overflow-hidden font-sans">
@@ -68,13 +60,6 @@ const PESTANAS: Pestana[] = [
             <button (click)="currentTab = tab.id" [ngClass]="currentTab === tab.id ? 'bg-acento-500 text-sobre-acento' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all">
               <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="tab.icono"></path></svg>
               <span class="flex-1 text-left">{{ tab.texto }}</span>
-              @if (tab.id === 'pedidos' && stats.pedidosNuevos > 0) {
-                <span class="min-w-[22px] h-[22px] px-1.5 rounded-full bg-amber-500 text-black text-[11px] font-black flex items-center justify-center">{{ stats.pedidosNuevos }}</span>
-              }
-              @if (tab.id === 'tienda' && stats.stockBajo > 0) {
-                <span title="Productos con stock bajo o agotados" class="min-w-[22px] h-[22px] px-1.5 rounded-full border text-[11px] font-black flex items-center justify-center"
-                      [ngClass]="currentTab === tab.id ? 'border-neutral-900/40 text-neutral-900' : 'border-amber-500/60 text-amber-300'">{{ stats.stockBajo }}</span>
-              }
             </button>
           }
         </nav>
@@ -122,7 +107,7 @@ const PESTANAS: Pestana[] = [
               </div>
 
               <!-- Stats Grid -->
-              <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
                   <div class="absolute -right-6 -top-6 w-24 h-24 bg-acento-500/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
                   <p class="text-neutral-400 font-bold mb-2">Citas Hoy</p>
@@ -150,15 +135,6 @@ const PESTANAS: Pestana[] = [
                   </p>
                 </div>
 
-                <button (click)="currentTab = 'pedidos'" class="text-left bg-neutral-900 border border-neutral-800 hover:border-amber-500/40 rounded-2xl p-6 shadow-xl relative overflow-hidden group transition-colors">
-                  <div class="absolute -right-6 -top-6 w-24 h-24 bg-amber-500/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                  <p class="text-neutral-400 font-bold mb-2">Pedidos de la tienda</p>
-                  <h3 class="text-4xl font-black text-white">{{ stats.pedidosNuevos }}</h3>
-                  <p class="inline-flex items-center gap-1 text-amber-400 text-sm font-bold mt-2">
-                    nuevos por confirmar
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-                  </p>
-                </button>
               </div>
             </div>
           }
@@ -258,16 +234,6 @@ const PESTANAS: Pestana[] = [
             <app-admin-rendimiento></app-admin-rendimiento>
           }
 
-          <!-- TAB: TIENDA -->
-          @if (currentTab === 'tienda') {
-            <app-admin-productos></app-admin-productos>
-          }
-
-          <!-- TAB: PEDIDOS -->
-          @if (currentTab === 'pedidos') {
-            <app-admin-pedidos></app-admin-pedidos>
-          }
-
           <!-- TAB: AJUSTES -->
           @if (currentTab === 'ajustes') {
             <app-admin-ajustes></app-admin-ajustes>
@@ -282,9 +248,6 @@ const PESTANAS: Pestana[] = [
           <button (click)="currentTab = tab.id" [ngClass]="currentTab === tab.id ? 'text-acento-500' : 'text-neutral-500'" class="relative shrink-0 min-w-[68px] flex flex-col items-center gap-1 px-2 py-1">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="tab.icono"></path></svg>
             <span class="text-[10px] font-bold whitespace-nowrap">{{ tab.corto }}</span>
-            @if (tab.id === 'pedidos' && stats.pedidosNuevos > 0) {
-              <span class="absolute top-0 right-3 w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            }
           </button>
         }
       </nav>
@@ -297,8 +260,6 @@ export class AdminDashboardComponent {
   private usuariosService = inject(UsuariosService);
   private citasService = inject(CitasService);
   private notificaciones = inject(NotificationService);
-  private pedidosService = inject(PedidosService);
-  private productosService = inject(ProductosService);
 
   usuarios$ = this.usuariosService.listar().pipe(shareReplay({ bufferSize: 1, refCount: true }));
 
@@ -312,22 +273,12 @@ export class AdminDashboardComponent {
     ingresosCompletadosHoy: 0,
     proximas: 0,
     clientes: 0,
-    pedidosNuevos: 0,
-    stockBajo: 0,
   };
 
   constructor() {
     this.citasService.todas().pipe(takeUntilDestroyed()).subscribe({
       next: citas => this.calcularStats(citas),
       error: error => console.error('Error cargando citas:', error),
-    });
-    this.pedidosService.todos().pipe(takeUntilDestroyed()).subscribe({
-      next: pedidos => this.stats.pedidosNuevos = pedidos.filter(p => p.estado === 'pendiente').length,
-      error: error => console.error('Error cargando pedidos:', error),
-    });
-    this.productosService.todos().pipe(takeUntilDestroyed()).subscribe({
-      next: productos => this.stats.stockBajo = productos.flatMap(p => existencias(p)).filter(e => e.stock <= STOCK_BAJO).length,
-      error: error => console.error('Error cargando productos:', error),
     });
     this.usuarios$.pipe(
       map(usuarios => usuarios.filter(u => (u.rol ?? 'cliente') === 'cliente').length),

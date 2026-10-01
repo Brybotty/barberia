@@ -51,15 +51,6 @@ export const ACICALE: ConfigCliente = {
   ],
   // Sin reseñas hasta tener reseñas reales del negocio.
   resenas: undefined,
-  tienda: {
-    ciudad: 'Cali',
-    departamento: 'Valle del Cauca',
-    aliada: {
-      nombre: 'Cacique',
-      instagram: 'cacique.pro',
-      descripcion: 'Somos embajadores oficiales de Cacique: los mismos productos que usamos en cada servicio, ahora para tu rutina en casa.',
-    },
-  },
   // TODO: pedir al cliente razón social, NIT y un correo para datos personales. Mientras tanto la
   // política usa el nombre comercial y los canales de contacto que ya hay (dirección e Instagram).
   legal: {

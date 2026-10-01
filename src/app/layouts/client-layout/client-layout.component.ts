@@ -6,9 +6,7 @@ import { CLIENTE } from '../../config/cliente';
 import { MarcaComponent } from '../../shared/components/marca/marca.component';
 import { resumenHorario } from '../../core/utils/horario';
 import { DesplazamientoService } from '../../core/services/desplazamiento.service';
-import { CarritoService } from '../../core/services/carrito.service';
 import { AjustesService } from '../../core/services/ajustes.service';
-import { CarritoPanelComponent } from '../../features/tienda/components/carrito-panel.component';
 
 interface EnlaceNav {
   texto: string;
@@ -21,7 +19,7 @@ interface EnlaceNav {
 @Component({
   selector: 'app-client-layout',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, CommonModule, MarcaComponent, CarritoPanelComponent],
+  imports: [RouterOutlet, RouterLink, CommonModule, MarcaComponent],
   template: `
     <header class="sticky top-0 z-50 w-full backdrop-blur-xl transition-all duration-500 border-b"
             [ngClass]="conScroll ? 'bg-neutral-950/90 border-white/10 shadow-2xl shadow-black/40' : 'bg-neutral-950/60 border-transparent'">
@@ -61,7 +59,6 @@ interface EnlaceNav {
                   <span class="block text-xs font-bold text-white leading-tight">{{ user.nombre.split(' ')[0] }}</span>
                   <span class="block text-[10px] font-semibold text-neutral-500">
                     <a routerLink="/mis-citas" class="hover:text-neutral-200 transition-colors">Reservas</a>
-                    @if (tiendaActiva()) { · <a routerLink="/mis-pedidos" class="hover:text-neutral-200 transition-colors">Pedidos</a> }
                   </span>
                 </div>
                 <button (click)="logout()" title="Cerrar sesión" class="p-2 text-neutral-500 hover:text-white transition-colors">
@@ -70,15 +67,6 @@ interface EnlaceNav {
               </div>
             } @else {
               <a routerLink="/login" class="hidden md:inline-block text-sm font-bold text-neutral-400 hover:text-white transition-colors px-2">Ingresar</a>
-            }
-
-            @if (tiendaActiva()) {
-              <button type="button" (click)="carrito.abierto.set(true)" class="relative p-2.5 rounded-full border border-white/15 text-white hover:bg-white/10 transition-colors active:scale-95" [attr.aria-label]="'Carrito (' + carrito.cantidad() + ')'">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-                @if (carrito.cantidad() > 0) {
-                  <span class="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-acento-500 text-sobre-acento text-[11px] font-black flex items-center justify-center ring-2 ring-neutral-950 animate-in zoom-in duration-300">{{ carrito.cantidad() }}</span>
-                }
-              </button>
             }
 
             <a routerLink="/reservar" class="hidden sm:inline-flex items-center gap-2 bg-acento-500 hover:bg-acento-400 text-sobre-acento font-black text-sm py-2.5 px-5 rounded-full transition-all duration-300 hover:shadow-lg hover:shadow-acento-500/25 active:scale-95">
@@ -107,9 +95,6 @@ interface EnlaceNav {
                 <p class="text-xs text-neutral-500 mb-3">{{ user.email }}</p>
                 <div class="flex flex-wrap gap-2">
                   <a routerLink="/mis-citas" (click)="isMobileMenuOpen = false" class="text-xs font-bold text-neutral-200 border border-white/15 px-3 py-1.5 rounded-lg">Mis reservas</a>
-                  @if (tiendaActiva()) {
-                    <a routerLink="/mis-pedidos" (click)="isMobileMenuOpen = false" class="text-xs font-bold text-neutral-200 border border-white/15 px-3 py-1.5 rounded-lg">Mis pedidos</a>
-                  }
                   @if (user.rol === 'admin') {
                     <a routerLink="/admin" (click)="isMobileMenuOpen = false" class="text-xs font-bold text-acento-500 border border-acento-500/30 px-3 py-1.5 rounded-lg">Panel</a>
                   }
@@ -179,8 +164,6 @@ interface EnlaceNav {
         <a routerLink="/politica-de-datos" class="hover:text-neutral-300 transition-colors">Política de tratamiento de datos</a>
       </div>
     </footer>
-
-    <app-carrito-panel />
   `,
   host: {
     class: 'flex flex-col min-h-screen bg-neutral-950'
@@ -190,16 +173,13 @@ export class ClientLayoutComponent {
   readonly cliente = CLIENTE;
   readonly anio = new Date().getFullYear();
   readonly horario = resumenHorario();
-  readonly carrito = inject(CarritoService);
   private ajustes = inject(AjustesService).ajustes;
-  readonly tiendaActiva = computed(() => this.ajustes().tienda.activa);
 
   readonly links = computed<EnlaceNav[]>(() => {
-    const { tienda, cursos } = this.ajustes();
+    const { cursos } = this.ajustes();
     return [
       { texto: 'Inicio', ruta: '/' },
       { texto: 'Servicios', ruta: '/servicios' },
-      ...(tienda.activa ? [{ texto: 'Tienda', ruta: '/tienda' }] : []),
       { texto: 'Galería', ruta: '/', fragmento: 'galeria' },
       ...(CLIENTE.equipo.length > 0 ? [{ texto: 'Equipo', ruta: '/', fragmento: 'equipo' }] : []),
       { texto: 'Contacto', ruta: '/', fragmento: 'contacto' },

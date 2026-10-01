@@ -1,7 +1,7 @@
 {
   "name": "functions",
   "private": true,
-  "description": "Cloud Functions de la tienda: pagos con Wompi.",
+  "description": "Cloud Functions de la barbería: correos de confirmación de citas.",
   "main": "lib/index.js",
   "engines": {
     "node": "22"
@@ -9,7 +9,6 @@
   "scripts": {
     "build": "tsc",
     "test": "tsc && node --test \"lib/**/*.test.js\"",
-    "serve": "npm run build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"
   },

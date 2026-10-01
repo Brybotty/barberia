@@ -4,12 +4,6 @@ import { ClientLayoutComponent } from './layouts/client-layout/client-layout.com
 
 export const routes: Routes = [
   {
-    // Solo en la demo con emuladores: imita el checkout de Wompi (fuera del layout, como la pasarela real).
-    path: 'tienda/pago-simulado/:pedidoId',
-    loadComponent: () => import('./features/tienda/pago-simulado/pago-simulado.component').then(m => m.PagoSimuladoComponent),
-    canActivate: [authGuard]
-  },
-  {
     // Las rutas públicas y de cliente usan el Navbar y Footer
     path: '',
     component: ClientLayoutComponent,
@@ -21,25 +15,6 @@ export const routes: Routes = [
       {
         path: 'servicios',
         loadComponent: () => import('./features/servicios/servicios.component').then(m => m.ServiciosComponent)
-      },
-      {
-        path: 'tienda',
-        loadComponent: () => import('./features/tienda/tienda.component').then(m => m.TiendaComponent)
-      },
-      {
-        // Sin guard: el checkout pide iniciar sesión al confirmar, sin perder lo escrito.
-        path: 'tienda/pagar',
-        loadComponent: () => import('./features/tienda/checkout/checkout.component').then(m => m.CheckoutComponent)
-      },
-      {
-        path: 'tienda/pedido/:pedidoId',
-        loadComponent: () => import('./features/tienda/pedido/pedido.component').then(m => m.PedidoComponent),
-        canActivate: [authGuard]
-      },
-      {
-        path: 'mis-pedidos',
-        loadComponent: () => import('./features/tienda/mis-pedidos/mis-pedidos.component').then(m => m.MisPedidosComponent),
-        canActivate: [authGuard]
       },
       {
         path: 'politica-de-datos',

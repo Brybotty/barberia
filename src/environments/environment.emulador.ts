@@ -1,5 +1,5 @@
 export const environment = {
-  /** Conecta Firestore y Functions a los emuladores locales (npm run demo). */
+  /** Conecta Firestore al emulador local con los datos de la demo (npm run demo). */
   emuladores: true,
   /**
    * El inicio de sesión es con Google real (cuentas de verdad); solo los datos van a los emuladores.

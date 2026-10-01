@@ -1,9 +1,8 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { EMPTY, Observable, map, of, switchMap } from 'rxjs';
+import { EMPTY, Observable, map, switchMap } from 'rxjs';
 import { AuthService } from './auth.service';
 import { BarberosService } from './barberos.service';
 import { CitasService } from './citas.service';
-import { PedidosService } from './pedidos.service';
 import { BARBERO_CUALQUIERA, Cita } from '../models/cita.model';
 import { Usuario } from '../models/usuario.model';
 
@@ -22,7 +21,6 @@ export class NotificationService {
   private auth = inject(AuthService);
   private citas = inject(CitasService);
   private barberos = inject(BarberosService);
-  private pedidos = inject(PedidosService);
 
   toastMessage = signal<Toast | null>(null);
 
@@ -48,20 +46,6 @@ export class NotificationService {
       error: error => console.error('Error escuchando nuevas reservas:', error),
     });
 
-    // El admin también recibe un aviso por cada pedido nuevo de la tienda.
-    this.auth.currentUserProfile$.pipe(
-      switchMap(perfil => perfil?.rol === 'admin' ? this.pedidos.creadosDesde(new Date().toISOString()) : EMPTY),
-    ).subscribe({
-      next: pedidos => {
-        for (const pedido of pedidos) {
-          if (this.notificadas.has(pedido.id!)) continue;
-          this.notificadas.add(pedido.id!);
-          this.mostrar('¡Nuevo pedido en la tienda!', `${pedido.cliente.nombre} · $${pedido.total.toLocaleString('es-CO')} · Revísalo en Admin, Pedidos.`);
-          this.reproducirSonido();
-        }
-      },
-      error: error => console.error('Error escuchando nuevos pedidos:', error),
-    });
   }
 
   mostrar(title: string, body: string, tipo: TipoToast = 'info') {

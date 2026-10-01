@@ -25,7 +25,7 @@ import { CLIENTE } from '../../config/cliente';
 
       <div class="vidrio rounded-2xl p-5 mt-8">
         <p class="text-sm">
-          En {{ cliente.nombre }} cuidamos la información que nos confías cuando reservas, compras o nos escribes.
+          En {{ cliente.nombre }} cuidamos la información que nos confías cuando reservas o nos escribes.
           Aquí te contamos qué datos usamos, para qué y cómo puedes consultarlos, corregirlos o pedir que los borremos,
           conforme a la Ley 1581 de 2012 y sus decretos reglamentarios.
         </p>
@@ -48,18 +48,16 @@ import { CLIENTE } from '../../config/cliente';
 
       <h2 id="datos">2. Qué datos recolectamos</h2>
       <ul>
-        <li><strong>Identificación y contacto:</strong> nombre, correo electrónico de tu cuenta de Google, número de celular y, si nos la das, tu cédula (solo para la factura).</li>
-        <li><strong>Entrega:</strong> dirección, barrio, ciudad y departamento, cuando pides un domicilio o un envío.</li>
-        <li><strong>Reservas y compras:</strong> servicios reservados, fechas y horas, barbero elegido, productos comprados, valores y estado de tus pedidos y pagos.</li>
-        <li><strong>Navegación:</strong> tu carrito se guarda en tu propio navegador y tu sesión la gestiona Google. No usamos cookies de publicidad propias; los videos de Instagram y el mapa de Google que mostramos pueden usar sus propias cookies, según las políticas de esas plataformas.</li>
+        <li><strong>Identificación y contacto:</strong> nombre, correo electrónico de tu cuenta de Google y número de celular.</li>
+        <li><strong>Reservas:</strong> servicios reservados, fechas y horas, barbero elegido, valor y estado de cada cita.</li>
+        <li><strong>Navegación:</strong> tu sesión la gestiona Google. No usamos cookies de publicidad propias; los videos de Instagram y el mapa de Google que mostramos pueden usar sus propias cookies, según las políticas de esas plataformas.</li>
       </ul>
-      <p>No recolectamos datos sensibles (salud, origen étnico, creencias, etc.) y <strong>nunca vemos ni guardamos los datos de tu tarjeta o cuenta bancaria</strong>: los pagos en línea los procesa directamente la pasarela de pagos.</p>
+      <p>No recolectamos datos sensibles (salud, origen étnico, creencias, etc.) ni datos de tarjetas o cuentas bancarias.</p>
 
       <h2 id="finalidades">3. Para qué los usamos</h2>
       <ul>
         <li>Agendar, confirmar, recordar y gestionar tus citas.</li>
-        <li>Procesar tus pedidos de la tienda: confirmarlos, cobrarlos, prepararlos y entregarlos.</li>
-        <li>Comunicarnos contigo por WhatsApp, llamada o correo sobre tus citas y pedidos.</li>
+        <li>Comunicarnos contigo por WhatsApp, llamada o correo sobre tus citas.</li>
         <li>Atender tus preguntas, quejas, reclamos y solicitudes de garantía.</li>
         <li>Cumplir obligaciones legales, contables y tributarias (por ejemplo, la facturación).</li>
         <li>Enviarte novedades y promociones, solo si nos das tu autorización para eso. Puedes retirarla cuando quieras.</li>
@@ -69,8 +67,7 @@ import { CLIENTE } from '../../config/cliente';
       <p>No vendemos ni alquilamos tus datos. Solo los compartimos con quienes nos ayudan a prestarte el servicio, que los tratan por nuestra cuenta y con medidas de seguridad:</p>
       <ul>
         <li><strong>Google (Firebase):</strong> aloja la página, las cuentas y la base de datos. Sus servidores pueden estar fuera de Colombia, lo que implica una transmisión internacional de datos a un proveedor con estándares adecuados de protección.</li>
-        <li><strong>Pasarela de pagos (Wompi, de Bancolombia):</strong> procesa los pagos en línea bajo sus propias políticas y normas de seguridad.</li>
-        <li><strong>Transportadoras y mensajeros:</strong> reciben tu nombre, dirección y celular para entregarte el pedido.</li>
+        <li><strong>Resend:</strong> envía los correos de confirmación de tus citas (tu nombre, tu correo y los datos de la cita). Sus servidores están fuera de Colombia.</li>
         <li><strong>Autoridades:</strong> cuando una norma o una orden judicial lo exija.</li>
       </ul>
 
@@ -91,14 +88,14 @@ import { CLIENTE } from '../../config/cliente';
         <li><strong>Consultas</strong> (saber qué datos tenemos y cómo los usamos): te respondemos en máximo <strong>10 días hábiles</strong>. Si necesitamos más tiempo te avisamos, y en ningún caso pasaremos de 5 días hábiles adicionales.</li>
         <li><strong>Reclamos</strong> (corregir, actualizar, borrar o revocar la autorización): incluye tu identificación, la descripción de lo que pides, tu dirección o correo de respuesta y los documentos que quieras hacer valer. Te respondemos en máximo <strong>15 días hábiles</strong>, prorrogables hasta 8 días hábiles más, avisándote el motivo.</li>
       </ul>
-      <p>También puedes actualizar tu celular en cada compra y cancelar tus reservas y pedidos pendientes desde "Mis reservas" y "Mis pedidos".</p>
+      <p>También puedes actualizar tu celular en cada reserva y cancelar tus citas pendientes desde "Mis reservas".</p>
 
       <h2 id="seguridad">7. Seguridad y conservación</h2>
-      <p>Tus datos viajan cifrados (HTTPS) y solo acceden a ellos las personas que los necesitan: cada cliente ve únicamente sus propias citas y pedidos, y el personal accede según su rol.</p>
+      <p>Tus datos viajan cifrados (HTTPS) y solo acceden a ellos las personas que los necesitan: cada cliente ve únicamente sus propias citas, y el personal accede según su rol.</p>
       <p>Guardamos tus datos mientras tengas una relación con nosotros y durante el tiempo que exijan las normas contables, tributarias y de protección al consumidor. Después los borramos o los anonimizamos.</p>
 
       <h2 id="autorizacion">8. Autorización</h2>
-      <p>Al iniciar sesión, reservar o confirmar un pedido nos autorizas a tratar tus datos según esta política. Guardamos la fecha de esa autorización como prueba. Los menores de edad deben usar el servicio con autorización de su representante legal.</p>
+      <p>Al iniciar sesión o reservar nos autorizas a tratar tus datos según esta política. Guardamos la fecha de esa autorización como prueba. Los menores de edad deben usar el servicio con autorización de su representante legal.</p>
 
       <h2 id="cambios">9. Cambios a esta política</h2>
       <p>Si cambiamos algo importante, lo publicaremos en esta página con la nueva fecha de vigencia y, si el cambio afecta las finalidades, te pediremos una nueva autorización.</p>

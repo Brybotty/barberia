@@ -291,7 +291,9 @@
               </label>
               <label class="block">
                 <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Correo</span>
-                <input type="email" [(ngModel)]="clienteCorreo" placeholder="Tu email" autocomplete="email" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors">
+                <!-- Solo lectura: la confirmación va al correo de la cuenta (las reglas no aceptan otro). -->
+                <input type="email" [value]="clienteCorreo" readonly tabindex="-1" aria-describedby="nota-correo" class="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-neutral-300 outline-none cursor-default">
+                <span id="nota-correo" class="block text-[11px] text-neutral-500 mt-1.5">Aquí te llega la confirmación de la cita.</span>
               </label>
             </div>
 

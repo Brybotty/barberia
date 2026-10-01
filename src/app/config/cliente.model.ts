@@ -75,14 +75,6 @@ export interface ConfigCliente {
   /** Catálogo inicial. El admin lo carga en Firestore desde "Servicios & Precios" cuando la colección está vacía. */
   catalogo: Servicio[];
   resenas?: { calificacion: string; items: Resena[] };
-  /** Tienda de productos. Sin esto la tienda arranca desactivada (se puede activar en Admin → Ajustes). */
-  tienda?: {
-    /** Ciudad y departamento del domicilio local ('Cali', 'Valle del Cauca'). */
-    ciudad: string;
-    departamento: string;
-    /** Marca de la que el negocio es embajador o distribuidor. */
-    aliada?: { nombre: string; instagram: string; descripcion: string };
-  };
   /** Datos del responsable del tratamiento de datos (página /politica-de-datos). */
   legal: {
     /** Razón social o nombre del titular del negocio. Sin ella se usa `nombre`. */

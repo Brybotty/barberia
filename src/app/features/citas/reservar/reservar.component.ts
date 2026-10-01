@@ -100,7 +100,7 @@ export class ReservarComponent implements OnInit {
       const nombres = user.displayName?.split(' ') || [];
       this.clienteNombre = nombres[0] || '';
       this.clienteApellido = nombres.slice(1).join(' ') || '';
-      this.clienteCorreo = user.email || '';
+      this.clienteCorreo = (user.email || '').toLowerCase();
     }
 
     this.barberosService.listar().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -279,7 +279,11 @@ export class ReservarComponent implements OnInit {
     // Si la hora elegida se ocupó mientras el cliente llenaba el formulario, se deselecciona.
     const previa = this.horaSeleccionada?.minutos;
     this.horaSeleccionada = this.horasDisponibles.find(h => h.minutos === previa) ?? null;
-    if (!this.horaSeleccionada && this.paso === 4) this.paso = 3;
+    // (Al confirmar, los bloques propios también aparecen ocupados: ahí no se avisa.)
+    if (previa !== undefined && !this.horaSeleccionada && !this.isSubmitting && !this.reservaConfirmada) {
+      if (this.paso === 4) this.paso = 3;
+      this.notificaciones.error('Esa hora se acaba de ocupar', 'Alguien la reservó mientras llenabas tus datos. Elige otra, por favor.');
+    }
   }
 
   private barberosCandidatos(): string[] {

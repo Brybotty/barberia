@@ -11,7 +11,7 @@ export const authGuard: CanActivateFn = (route, state) => {
     take(1),
     map(user => {
       if (user) return true;
-      // Tras iniciar sesión vuelve a donde iba (p. ej. el pedido al que llegó desde Wompi).
+      // Tras iniciar sesión vuelve a donde iba (p. ej. a reservar).
       return router.createUrlTree(['/login'], { queryParams: { volver: state.url } });
     })
   );

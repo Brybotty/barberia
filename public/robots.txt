@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /barbero
+Disallow: /mis-citas
+Disallow: /login
