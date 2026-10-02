@@ -10,7 +10,7 @@ App para barberías: reservas por barbero, enlace a cursos y paneles para barber
 npm install
 npm start          # http://localhost:4200 (usa el Firebase real del cliente)
 npm test                 # tests unitarios (Karma)
-npm run test:reglas      # 85 pruebas de seguridad de firestore.rules (emulador, no toca datos reales)
+npm run test:reglas      # 109 pruebas de seguridad de firestore.rules (emulador, no toca datos reales)
 npm run test:funciones   # tests de los correos (functions/)
 npm run build            # build de producción en dist/barberia/browser
 ```
@@ -113,7 +113,10 @@ con `RESEND_API_KEY=` cualquier valor). En los emuladores los correos no salen: 
 
 - `usuarios/{uid}`: perfil, rol y teléfono.
 - `servicios/{id}`: catálogo público de servicios.
-- `barberos/{id}`: perfiles públicos del staff. `emailAsociado` lo enlaza con la cuenta del barbero.
+- `barberos/{id}`: perfil **público** (nombre, especialidad, foto). Lo ve cualquiera, así que no lleva nada personal.
+- `barberosPrivado/{id}` (mismo id): `emailAsociado` (enlaza al barbero con su cuenta) y `comision`. Solo lo lee el
+  admin, y cada barbero únicamente el suyo (por su correo verificado). Las reglas rechazan guardar esos campos en
+  `barberos`. La app y las funciones los leen de aquí.
 - `citas/{id}`: reservas con datos del cliente. Solo las leen su dueño y el staff.
 - `slots/{barberoId}_{YYYY-MM-DD}_{HHmm}`: un documento por cada bloque de 30 min ocupado, sin datos personales.
   La disponibilidad se calcula con esta colección, y como sus IDs son deterministas, las reglas impiden
@@ -131,7 +134,7 @@ El Acicale** (TODO en `src/app/config/clientes/acicale.ts`). Conviene que un abo
 ## Reglas de Firestore (seguridad)
 
 Las reglas están en `firestore.rules`, desplegadas en `barbercali-db2` el 2026-09-30. Antes de desplegar un
-cambio, corre `npm run test:reglas` (85 casos: lo que la app hace debe funcionar y cada ataque debe fallar).
+cambio, corre `npm run test:reglas` (109 casos: lo que la app hace debe funcionar y cada ataque debe fallar).
 
 Qué protegen:
 
@@ -142,6 +145,7 @@ Qué protegen:
 - **Reservas:** el precio, el nombre y la duración deben coincidir con el catálogo; el barbero debe existir;
   los bloques deben ser los del día y la hora de la cita y alcanzar para toda la duración (no hay doble reserva);
   la confirmación solo puede ir al correo de quien reserva (anti-spam); no se pueden agregar campos.
+- **Datos del equipo:** el correo y la comisión de los barberos no son públicos (`barberosPrivado`).
 - **Barberos:** solo gestionan sus propias citas (las del perfil enlazado a su correo) y solo cambian el estado
   y el valor cobrado.
 - **Catálogo, staff y cursos:** solo los edita el admin. Cualquier otra colección está cerrada.
@@ -154,6 +158,31 @@ firebase login
 npm run test:reglas
 firebase deploy --only firestore:rules
 ```
+
+## Protecciones de Google Cloud y Firebase
+
+Estas protecciones **no están en el código**: están configuradas en el proyecto `barbercali-db2`.
+
+- **App Check** (reCAPTCHA Enterprise, por puntaje): Firestore solo atiende a la página de verdad. Un script sin el
+  token recibe 403, también para leer lo público. La app lo configura en `src/app/app.config.ts`
+  (`appCheckSiteKey` en `acicale.ts`). Puntaje mínimo 0.3, token de 1 hora. Auth no lo exige.
+- **Llave de API de Firebase**: solo acepta peticiones de `barbercali-db2.web.app`, `barbercali-db2.firebaseapp.com` y
+  `localhost`. Ojo: es una barrera contra otras páginas web, no contra un script que falsifique el origen.
+- **Clave de reCAPTCHA de App Check** ("ElAcicale"): limitada a los dos dominios de arriba (sin `localhost`).
+- **reCAPTCHA Enterprise para el SMS del celular** (modo AUDIT) y SMS permitidos solo a Colombia.
+- **Secretos** (llave de Resend): en Secret Manager, nunca en el código.
+
+### Desarrollar en localhost con App Check
+
+Con `npm start` la página usa un token de depuración (no reCAPTCHA). La primera vez, o al limpiar los datos del
+navegador, no cargan los datos hasta registrarlo:
+
+1. Abre `http://localhost:4200` con las herramientas de desarrollador (F12 → Consola).
+2. Copia el valor de `App Check debug token: xxxxxxxx-…`.
+3. Firebase → *App Check* → *Apps* → tu app web → ⋮ → *Administrar tokens de depuración* → *Agregar*.
+4. Recarga la página.
+
+`npm run demo` (emuladores) no usa App Check. No subas un token de depuración al repositorio: es un secreto.
 
 ## Publicar la página (Firebase Hosting)
 
@@ -175,3 +204,8 @@ Después de la primera publicación:
    muestre "firebaseapp.com".
 4. En `functions/.env.barbercali-db2` pon `URL_SITIO` y el remitente con tu dominio, y despliega las funciones.
 5. En `src/index.html` activa `og:image` y `og:url` con la dirección completa (la vista previa al compartir el enlace).
+6. **Agrega el dominio nuevo a las protecciones**, o esa dirección dejará de funcionar:
+   - la llave de API (Google Cloud → *APIs y servicios → Credenciales → Browser key → Restricciones de sitios web*,
+     por ejemplo `https://elacicale.com/*`);
+   - la clave de reCAPTCHA "ElAcicale" (Google Cloud → *reCAPTCHA Enterprise → Claves → Dominios*), para App Check;
+   - *Authentication → Configuración → Dominios autorizados*.

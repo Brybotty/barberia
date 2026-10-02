@@ -129,7 +129,7 @@ export class AdminBarberosComponent {
 
   nuevoBarbero: Barbero = this.barberoVacio();
 
-  barberos$ = this.barberosService.listar();
+  barberos$ = this.barberosService.listarCompleto();
 
   constructor() {
     // Asigna el rol a barberos enlazados que iniciaron sesión después de ser registrados.

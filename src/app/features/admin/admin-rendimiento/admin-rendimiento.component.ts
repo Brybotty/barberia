@@ -140,7 +140,7 @@ export class AdminRendimientoComponent {
   readonly periodo = signal<Periodo>('mes');
   readonly abierto = signal<string | null>(null);
 
-  private barberos = toSignal(inject(BarberosService).listar().pipe(catchError(() => of([] as Barbero[]))), { initialValue: [] });
+  private barberos = toSignal(inject(BarberosService).listarCompleto().pipe(catchError(() => of([] as Barbero[]))), { initialValue: [] });
   private citas = toSignal(inject(CitasService).todas().pipe(catchError(() => of([] as Cita[]))), { initialValue: [] });
   private perfil = toSignal(this.auth.currentUserProfile$);
 

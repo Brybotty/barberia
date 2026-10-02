@@ -50,8 +50,10 @@ await env.withSecurityRulesDisabled(async ctx => {
   await usuario('ana', 'cliente');
   await usuario('beto', 'cliente');
   await usuario('falso', 'barbero'); // aun con rol de barbero, su correo no está verificado
-  await setDoc(doc(f, 'barberos/B1'), { nombre: 'Luis', emailAsociado: 'luis@x.com', especialidad: '', avatar: '' });
-  await setDoc(doc(f, 'barberos/B2'), { nombre: 'Pedro', emailAsociado: 'pedro@x.com', especialidad: '', avatar: '' });
+  await setDoc(doc(f, 'barberos/B1'), { nombre: 'Luis', especialidad: '', avatar: '' });
+  await setDoc(doc(f, 'barberos/B2'), { nombre: 'Pedro', especialidad: '', avatar: '' });
+  await setDoc(doc(f, 'barberosPrivado/B1'), { emailAsociado: 'luis@x.com', comision: 40 });
+  await setDoc(doc(f, 'barberosPrivado/B2'), { emailAsociado: 'pedro@x.com', comision: 60 });
   for (const [id, s] of Object.entries(SERVICIOS)) await setDoc(doc(f, `servicios/${id}`), { ...s, categoria: 'x', descripcion: '', destacado: true });
   await setDoc(doc(f, 'productos/P1'), { nombre: 'Cera', precio: 1 });
 });
@@ -131,8 +133,35 @@ await caso('visitante lee servicios, barberos y ajustes', async () => {
 });
 await caso('ATAQUE: cliente baja el precio de un servicio', () => assertFails(updateDoc(doc(db('ana'), 'servicios/S1'), { precio: 1 })));
 await caso('ATAQUE: barbero edita servicios', () => assertFails(updateDoc(doc(db('luis'), 'servicios/S1'), { precio: 1 })));
-await caso('ATAQUE: barbero cambia el correo de su perfil de barbero', () => assertFails(updateDoc(doc(db('luis'), 'barberos/B1'), { emailAsociado: 'otro@x.com' })));
-await caso('ATAQUE: cliente se enlaza a un perfil de barbero', () => assertFails(updateDoc(doc(db('ana'), 'barberos/B1'), { emailAsociado: 'ana@x.com' })));
+await caso('ATAQUE: barbero cambia el correo de su perfil de barbero', () => assertFails(updateDoc(doc(db('luis'), 'barberosPrivado/B1'), { emailAsociado: 'otro@x.com' })));
+await caso('ATAQUE: cliente se enlaza a un perfil de barbero', () => assertFails(updateDoc(doc(db('ana'), 'barberosPrivado/B1'), { emailAsociado: 'ana@x.com' })));
+await caso('ATAQUE: barbero se sube la comisión', () => assertFails(updateDoc(doc(db('luis'), 'barberosPrivado/B1'), { comision: 100 })));
+
+console.log('\nbarberos: datos públicos y privados');
+await caso('la lista pública de barberos no trae correo ni comisión', async () => {
+  const lista = await getDocs(collection(anon(), 'barberos'));
+  for (const d of lista.docs) if ('emailAsociado' in d.data() || 'comision' in d.data()) throw new Error(`${d.id} expone datos privados`);
+});
+await caso('ATAQUE: visitante lee los datos privados de los barberos', () => assertFails(getDocs(collection(anon(), 'barberosPrivado'))));
+await caso('ATAQUE: cliente lee los datos privados de los barberos', () => assertFails(getDocs(collection(db('ana'), 'barberosPrivado'))));
+await caso('ATAQUE: cliente consulta por el correo de un barbero', () =>
+  assertFails(getDocs(query(collection(db('ana'), 'barberosPrivado'), where('emailAsociado', '==', 'luis@x.com')))));
+await caso('barbero encuentra su propio perfil por su correo', async () => {
+  const r = await assertSucceeds(getDocs(query(collection(db('luis'), 'barberosPrivado'), where('emailAsociado', '==', 'luis@x.com'))));
+  if (r.size !== 1 || r.docs[0].id !== 'B1') throw new Error('no encontró su perfil');
+});
+await caso('ATAQUE: barbero lista TODOS los perfiles privados (comisiones ajenas)', () => assertFails(getDocs(collection(db('luis'), 'barberosPrivado'))));
+await caso('ATAQUE: barbero lee la comisión de otro barbero', () => assertFails(getDoc(doc(db('luis'), 'barberosPrivado/B2'))));
+await caso('ATAQUE: cuenta sin verificar con el correo de un barbero lee su perfil privado', () =>
+  assertFails(getDocs(query(collection(db('falso', { email_verified: false }), 'barberosPrivado'), where('emailAsociado', '==', 'luis@x.com')))));
+await caso('admin lee todos los perfiles privados', () => assertSucceeds(getDocs(collection(db('admin'), 'barberosPrivado'))));
+await caso('admin guarda correo y comisión de un barbero', () => assertSucceeds(setDoc(doc(db('admin'), 'barberosPrivado/B3'), { emailAsociado: 'nuevo@x.com', comision: 50 })));
+await caso('ATAQUE: comisión fuera de rango (150 %)', () => assertFails(setDoc(doc(db('admin'), 'barberosPrivado/B3'), { emailAsociado: 'nuevo@x.com', comision: 150 })));
+await caso('ATAQUE: ni el admin vuelve a poner el correo en el documento público', () =>
+  assertFails(setDoc(doc(db('admin'), 'barberos/B3'), { nombre: 'X', especialidad: '', avatar: '', emailAsociado: 'nuevo@x.com' })));
+await caso('ATAQUE: ni el admin guarda la comisión en el documento público', () =>
+  assertFails(updateDoc(doc(db('admin'), 'barberos/B1'), { comision: 10 })));
+await caso('ATAQUE: cliente escribe datos privados', () => assertFails(setDoc(doc(db('ana'), 'barberosPrivado/B9'), { emailAsociado: 'ana@x.com' })));
 await caso('ATAQUE: cliente cambia el enlace de cursos (phishing)', () => assertFails(setDoc(doc(db('ana'), 'ajustes/sitio'), { cursos: { url: 'https://malo.co' } })));
 await caso('admin edita servicios, barberos y ajustes', async () => {
   await assertSucceeds(updateDoc(doc(db('admin'), 'servicios/S1'), { descripcion: 'ok' }));

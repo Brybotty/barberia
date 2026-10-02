@@ -107,6 +107,11 @@ export interface ConfigCliente {
   };
   /** Cada cliente debería tener su propio proyecto de Firebase. */
   firebase: FirebaseOptions;
+  /**
+   * Clave de sitio (pública) de reCAPTCHA Enterprise, de tipo "por puntaje", para App Check.
+   * Sin ella la página no usa App Check. Debe permitir solo los dominios de la página.
+   */
+  appCheckSiteKey?: string;
   /** Cuenta que recibe el rol 'admin'. Debe coincidir con esEmailAdmin() en firestore.rules. */
   adminEmail: string;
 }

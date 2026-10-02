@@ -112,7 +112,8 @@ function datosDelNegocio(): Negocio {
 
 async function emailDelBarbero(barberoId: string): Promise<string | null> {
   if (!barberoId || barberoId === BARBERO_CUALQUIERA) return null;
-  const perfil = await getFirestore().doc(`barberos/${barberoId}`).get();
+  // El correo del barbero no es público: está en barberosPrivado (el Admin SDK lo lee sin pasar por las reglas).
+  const perfil = await getFirestore().doc(`barberosPrivado/${barberoId}`).get();
   const email = perfil.get('emailAsociado') as string | undefined;
   return emailValido(email) ? email.trim() : null;
 }

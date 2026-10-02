@@ -82,5 +82,8 @@ export const ACICALE: ConfigCliente = {
   // TODO: crear un proyecto de Firebase propio para El Acicale. Mientras tanto usa el de BarberCali,
   // así que comparten servicios, barberos y citas.
   firebase: BARBERCALI.firebase,
+  // Clave pública de reCAPTCHA Enterprise "ElAcicale", limitada a barbercali-db2.web.app y barbercali-db2.firebaseapp.com.
+  // Si se conecta un dominio propio, agrégalo a la clave (Google Cloud → reCAPTCHA) o App Check dejará de funcionar ahí.
+  appCheckSiteKey: '6LcOrtotAAAAACeTK09tTrYhKmr_dZOAGAjmazQV',
   adminEmail: BARBERCALI.adminEmail,
 };

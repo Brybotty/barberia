@@ -58,8 +58,11 @@ async function main() {
         descripcion: 'Cursos para barberos que quieren subir de nivel: técnica, visagismo, color y cómo convertir tu talento en negocio.',
       },
     },
-    'barberos/JoseJulian': { nombre: 'Jose Julian', especialidad: 'CEO & Barbero', avatar: 'jjulian.jpg', emailAsociado: 'jjulian.demo@example.com' },
-    'barberos/Trip': { nombre: 'Juan Sebastián "Trip"', especialidad: 'Barbero', avatar: 'triip.jpg', emailAsociado: 'trip.demo@example.com', comision: 50 },
+    // Lo público (barberos) y lo privado (barberosPrivado: correo de la cuenta y comisión), con el mismo id.
+    'barberos/JoseJulian': { nombre: 'Jose Julian', especialidad: 'CEO & Barbero', avatar: 'jjulian.jpg' },
+    'barberos/Trip': { nombre: 'Juan Sebastián "Trip"', especialidad: 'Barbero', avatar: 'triip.jpg' },
+    'barberosPrivado/JoseJulian': { emailAsociado: 'jjulian.demo@example.com', comision: null },
+    'barberosPrivado/Trip': { emailAsociado: 'trip.demo@example.com', comision: 50 },
   };
   SERVICIOS.forEach((s, i) => documentos[`servicios/S${i + 1}`] = s);
   const citas = generarCitas(documentos);

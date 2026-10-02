@@ -92,11 +92,24 @@ service cloud.firestore {
     }
 
     // ---------- barberos (perfiles públicos del staff) ----------
+    // Solo lo que puede ver cualquiera. El correo y la comisión van en barberosPrivado: aquí no se aceptan.
     match /barberos/{barberoId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && request.resource.data.keys().hasOnly(['nombre', 'especialidad', 'avatar']);
+      allow delete: if isAdmin();
     }
 
+    // ---------- barberosPrivado (correo de la cuenta y comisión; mismo id que barberos) ----------
+    // El admin lee todo; cada barbero solo el suyo (con su correo verificado), que es como encuentra su perfil.
+    match /barberosPrivado/{barberoId} {
+      allow read: if isAdmin()
+        || (isAuth() && correoVerificado() && resource.data.emailAsociado == emailDeLaCuenta());
+      allow create, update: if isAdmin() && request.resource.data.keys().hasOnly(['emailAsociado', 'comision'])
+        && request.resource.data.emailAsociado is string
+        && (request.resource.data.get('comision', null) == null
+            || (request.resource.data.comision is number && request.resource.data.comision >= 0 && request.resource.data.comision <= 100));
+      allow delete: if isAdmin();
+    }
     // ---------- ajustes (botón y sección de cursos) ----------
     match /ajustes/{ajusteId} {
       allow read: if true;
@@ -152,11 +165,11 @@ service cloud.firestore {
         return correo == '' || (correo is string && correoVerificado() && correo.lower() == emailDeLaCuenta());
       }
 
-      // El barbero solo gestiona sus citas: las del perfil de /barberos enlazado a su correo.
+      // El barbero solo gestiona sus citas: las del perfil enlazado a su correo (en barberosPrivado).
       function esSuCita() {
         return resource.data.barberoId == 'cualquiera'
           || (correoVerificado()
-              && get(/databases/$(database)/documents/barberos/$(resource.data.barberoId)).data.get('emailAsociado', '') == emailDeLaCuenta());
+              && get(/databases/$(database)/documents/barberosPrivado/$(resource.data.barberoId)).data.get('emailAsociado', '') == emailDeLaCuenta());
       }
 
       // El cliente solo ve sus citas; el staff ve todas.

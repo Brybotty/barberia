@@ -6,7 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, switchMap } from 'rxjs';
 import { BARBERO_CUALQUIERA, Cita } from '../../../core/models/cita.model';
-import { Barbero } from '../../../core/models/barbero.model';
+import { BarberoPublico } from '../../../core/models/barbero.model';
 import { Servicio, iconoDe } from '../../../core/models/servicio.model';
 import { AuthService } from '../../../core/services/auth.service';
 import { BarberosService } from '../../../core/services/barberos.service';
@@ -67,7 +67,7 @@ export class ReservarComponent implements OnInit {
   horaSeleccionada: HorarioDisponible | null = null;
   horasDisponibles: HorarioDisponible[] = [];
 
-  staff: Barbero[] = [];
+  staff: BarberoPublico[] = [];
   categorias: { nombre: string; servicios: Servicio[] }[] = [];
   cargandoDisponibilidad = false;
   private ocupados = new Set<string>();
