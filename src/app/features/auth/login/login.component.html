@@ -29,27 +29,131 @@
     <div class="w-full max-w-md">
       
       <!-- Logo solo visible en Móvil -->
-      <div class="md:hidden text-center mb-12">
+      <div class="md:hidden text-center mb-12 pt-12">
         <h1 class="text-3xl text-white"><app-marca claseLogo="w-14 h-14" /></h1>
       </div>
 
       <!-- Títulos -->
-      <div class="text-center mb-12">
+      <div class="text-center mb-10">
         <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-acento-500/10 text-acento-500 mb-6 border border-acento-500/20 shadow-sm">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
         </div>
         <h2 class="font-display text-3xl lg:text-4xl font-black text-white mb-3 tracking-tight">Acceso Exclusivo</h2>
-        <p class="text-neutral-400 font-medium text-base">Inicia sesión de forma rápida y segura para agendar tu próxima visita.</p>
+        <p class="text-neutral-400 font-medium text-base">Entra con Google, tu correo o tu celular para agendar tu próxima visita.</p>
       </div>
 
-      <!-- Botón de Google (CTA Principal) -->
+      <!-- Google -->
       <button (click)="login()" class="w-full bg-white border-2 border-slate-200 text-slate-700 font-extrabold py-4 px-6 rounded-[1.25rem] flex items-center justify-center gap-4 hover:bg-neutral-100 hover:shadow-lg hover:shadow-white/10 transition-all duration-300 active:scale-95 group">
         <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-6 h-6 transition-transform duration-300 group-hover:scale-110" alt="Google">
         <span class="text-[15px] tracking-wide">Continuar con Google</span>
       </button>
 
+      <div class="my-6 flex items-center gap-4">
+        <div class="h-px bg-white/10 flex-1"></div>
+        <span class="text-xs font-bold text-neutral-500">o entra con</span>
+        <div class="h-px bg-white/10 flex-1"></div>
+      </div>
+
+      <!-- Correo o celular -->
+      <div class="vidrio rounded-[1.25rem] p-6">
+        <div role="tablist" aria-label="Forma de entrar" class="grid grid-cols-2 gap-1 p-1 rounded-xl bg-black/40 border border-white/10 mb-6">
+          <button type="button" role="tab" [attr.aria-selected]="metodo === 'correo'" (click)="cambiarMetodo('correo')"
+                  class="py-2.5 rounded-lg text-sm font-black transition-colors"
+                  [class]="metodo === 'correo' ? 'bg-acento-500 text-sobre-acento' : 'text-neutral-400 hover:text-white'">Correo</button>
+          <button type="button" role="tab" [attr.aria-selected]="metodo === 'celular'" (click)="cambiarMetodo('celular')"
+                  class="py-2.5 rounded-lg text-sm font-black transition-colors"
+                  [class]="metodo === 'celular' ? 'bg-acento-500 text-sobre-acento' : 'text-neutral-400 hover:text-white'">Celular</button>
+        </div>
+
+        @if (metodo === 'correo') {
+          <form (ngSubmit)="enviarCorreo()" class="space-y-4" novalidate>
+            @if (modoCorreo === 'crear') {
+              <label class="block">
+                <span class="etiqueta-login">Nombre y apellido</span>
+                <input name="nombre" [(ngModel)]="nombre" autocomplete="name" class="campo-login">
+              </label>
+            }
+            <label class="block">
+              <span class="etiqueta-login">Correo</span>
+              <input name="correo" type="email" [(ngModel)]="correo" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" class="campo-login">
+            </label>
+            <label class="block">
+              <span class="etiqueta-login">Contraseña{{ modoCorreo === 'crear' ? ' (mínimo 6 caracteres)' : '' }}</span>
+              <span class="relative block">
+                <input name="clave" [type]="verClave ? 'text' : 'password'" [(ngModel)]="clave"
+                       [attr.autocomplete]="modoCorreo === 'crear' ? 'new-password' : 'current-password'" class="campo-login pr-20">
+                <button type="button" (click)="verClave = !verClave" [attr.aria-pressed]="verClave"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs font-bold text-neutral-400 hover:text-white">{{ verClave ? 'Ocultar' : 'Ver' }}</button>
+              </span>
+            </label>
+            @if (error) {
+              <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
+            }
+            <button type="submit" [disabled]="enviando" class="boton-login">
+              {{ enviando ? 'Un momento…' : modoCorreo === 'entrar' ? 'Entrar' : 'Crear cuenta' }}
+            </button>
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-bold">
+              @if (modoCorreo === 'entrar') {
+                <button type="button" (click)="olvideClave()" class="text-neutral-400 hover:text-white underline underline-offset-4">¿Olvidaste tu contraseña?</button>
+                <button type="button" (click)="cambiarModo('crear')" class="text-neutral-200 hover:text-white">¿No tienes cuenta? <span class="underline underline-offset-4">Crear cuenta</span></button>
+              } @else {
+                <button type="button" (click)="cambiarModo('entrar')" class="text-neutral-200 hover:text-white">¿Ya tienes cuenta? <span class="underline underline-offset-4">Entrar</span></button>
+              }
+            </div>
+          </form>
+        } @else {
+          @switch (pasoCelular) {
+            @case ('numero') {
+              <form (ngSubmit)="enviarCodigo()" class="space-y-4" novalidate>
+                <label class="block">
+                  <span class="etiqueta-login">Celular</span>
+                  <span class="flex">
+                    <span class="flex items-center px-4 rounded-l-xl border border-r-0 border-white/10 bg-white/5 text-neutral-300 font-bold">+57</span>
+                    <input name="celular" type="tel" [(ngModel)]="celular" autocomplete="tel-national" inputmode="numeric" placeholder="300 123 4567" class="campo-login rounded-l-none">
+                  </span>
+                </label>
+                <p class="text-xs text-neutral-500">Te enviaremos un código por SMS.</p>
+                @if (error) {
+                  <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
+                }
+                <button type="submit" [disabled]="enviando" class="boton-login">{{ enviando ? 'Enviando…' : 'Enviar código' }}</button>
+              </form>
+            }
+            @case ('codigo') {
+              <form (ngSubmit)="verificarCodigo()" class="space-y-4" novalidate>
+                <p class="text-sm text-neutral-300">Escribe el código que enviamos al <strong class="text-white">{{ celularCompleto }}</strong>.</p>
+                <label class="block">
+                  <span class="etiqueta-login">Código</span>
+                  <input name="codigo" [(ngModel)]="codigo" autocomplete="one-time-code" inputmode="numeric" maxlength="6" placeholder="123456" class="campo-login tracking-[0.5em] text-center text-lg">
+                </label>
+                @if (error) {
+                  <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
+                }
+                <button type="submit" [disabled]="enviando" class="boton-login">{{ enviando ? 'Verificando…' : 'Entrar' }}</button>
+                <button type="button" (click)="cambiarNumero()" class="w-full text-center text-xs font-bold text-neutral-400 hover:text-white underline underline-offset-4">Cambiar número o pedir otro código</button>
+              </form>
+            }
+            @case ('nombre') {
+              <form (ngSubmit)="guardarNombre()" class="space-y-4" novalidate>
+                <p class="text-sm text-neutral-300">¡Bienvenido! ¿Cómo te llamas?</p>
+                <label class="block">
+                  <span class="etiqueta-login">Nombre y apellido</span>
+                  <input name="nombre" [(ngModel)]="nombre" autocomplete="name" class="campo-login">
+                </label>
+                @if (error) {
+                  <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
+                }
+                <button type="submit" [disabled]="enviando" class="boton-login">{{ enviando ? 'Guardando…' : 'Continuar' }}</button>
+              </form>
+            }
+          }
+        }
+        <!-- reCAPTCHA invisible para el SMS (Firebase lo exige para evitar abusos) -->
+        <div #recaptcha></div>
+      </div>
+
       <!-- Divisor Estilizado -->
-      <div class="mt-12 flex items-center gap-4">
+      <div class="mt-10 flex items-center gap-4">
         <div class="h-px bg-white/10 flex-1"></div>
         <span class="text-[10px] font-black text-neutral-500 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-full">Proceso Seguro</span>
         <div class="h-px bg-white/10 flex-1"></div>

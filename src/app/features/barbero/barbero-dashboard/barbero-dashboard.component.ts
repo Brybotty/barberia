@@ -256,7 +256,7 @@ export class BarberoDashboardComponent {
    */
   private cargar(perfil: Usuario | null): Observable<Datos> {
     if (!perfil) return of({ perfil: null, barberos: [], citas: [] });
-    return this.barberosService.delEmail(perfil.email).pipe(
+    return this.barberosService.delEmail(perfil.email ?? '').pipe(
       switchMap(barberos => {
         let citas$: Observable<Cita[]>;
         if (barberos.length > 0) citas$ = this.citasService.deBarberos([...barberos.map(b => b.id!), BARBERO_CUALQUIERA]);

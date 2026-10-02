@@ -73,7 +73,7 @@ export class NotificationService {
     const nuevas$ = this.citas.creadasDesde(new Date().toISOString());
     if (perfil.rol === 'admin') return nuevas$;
 
-    return this.barberos.delEmail(perfil.email).pipe(
+    return this.barberos.delEmail(perfil.email ?? '').pipe(
       map(perfiles => [...perfiles.map(b => b.id!), BARBERO_CUALQUIERA]),
       switchMap(ids => nuevas$.pipe(map(citas => citas.filter(c => ids.includes(c.barberoId))))),
     );

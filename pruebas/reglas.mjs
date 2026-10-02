@@ -16,9 +16,13 @@ const ADMIN_EMAIL = 'ortizgonzalesbryanalexander1@gmail.com';
 const CUENTAS = {
   admin: ADMIN_EMAIL, luis: 'luis@x.com', pedro: 'pedro@x.com', suelto: 'suelto@x.com',
   ana: 'ana@x.com', beto: 'beto@x.com', nuevo: 'nuevo@x.com', malo: 'malo@x.com',
+  falso: 'luis@x.com', // cuenta creada desde fuera con el correo de Luis, sin verificar
 };
 const db = (uid, extra = {}) => env.authenticatedContext(uid, { email: CUENTAS[uid] ?? `${uid}@x.com`, email_verified: true, ...extra }).firestore();
 const anon = () => env.unauthenticatedContext().firestore();
+/** Cuenta creada con el celular: sin correo en el token. */
+const celular = (uid, telefono = '+573001112233') =>
+  env.authenticatedContext(uid, { phone_number: telefono, firebase: { sign_in_provider: 'phone' } }).firestore();
 
 let ok = 0, fallos = 0;
 async function caso(nombre, fn) {
@@ -45,6 +49,7 @@ await env.withSecurityRulesDisabled(async ctx => {
   await usuario('suelto', 'barbero'); // rol barbero pero sin perfil en /barberos
   await usuario('ana', 'cliente');
   await usuario('beto', 'cliente');
+  await usuario('falso', 'barbero'); // aun con rol de barbero, su correo no está verificado
   await setDoc(doc(f, 'barberos/B1'), { nombre: 'Luis', emailAsociado: 'luis@x.com', especialidad: '', avatar: '' });
   await setDoc(doc(f, 'barberos/B2'), { nombre: 'Pedro', emailAsociado: 'pedro@x.com', especialidad: '', avatar: '' });
   for (const [id, s] of Object.entries(SERVICIOS)) await setDoc(doc(f, `servicios/${id}`), { ...s, categoria: 'x', descripcion: '', destacado: true });
@@ -79,6 +84,14 @@ const hora = () => (h += 120); // horarios distintos para que no choquen entre c
 seccion('usuarios');
 await caso('nuevo usuario se crea como cliente (lo que hace el login)', () =>
   assertSucceeds(setDoc(doc(db('nuevo'), 'usuarios/nuevo'), { uid: 'nuevo', nombre: 'N', email: 'nuevo@x.com', rol: 'cliente', politicaAceptadaEn: 'x' }, { merge: true })));
+await caso('cuenta de celular crea su perfil sin correo y con su teléfono', () =>
+  assertSucceeds(setDoc(doc(celular('cel'), 'usuarios/cel'), { uid: 'cel', nombre: 'Camilo', rol: 'cliente', telefono: '+573001112233', politicaAceptadaEn: 'x' }, { merge: true })));
+await caso('ATAQUE: cuenta de celular se pone un correo en el perfil', () =>
+  assertFails(setDoc(doc(celular('cel2'), 'usuarios/cel2'), { uid: 'cel2', nombre: 'X', email: 'luis@x.com', rol: 'cliente' })));
+await caso('ATAQUE: cuenta de celular se crea como admin', () =>
+  assertFails(setDoc(doc(celular('cel3'), 'usuarios/cel3'), { uid: 'cel3', nombre: 'X', rol: 'admin' })));
+await caso('cuenta de correo recién creada (sin verificar) crea su perfil', () =>
+  assertSucceeds(setDoc(doc(db('recien', { email_verified: false }), 'usuarios/recien'), { uid: 'recien', nombre: 'R', email: 'recien@x.com', rol: 'cliente', politicaAceptadaEn: 'x' }, { merge: true })));
 await caso('ATAQUE: crearse como admin', () =>
   assertFails(setDoc(doc(db('malo'), 'usuarios/malo'), { uid: 'malo', nombre: 'M', email: 'malo@x.com', rol: 'admin' })));
 await caso('ATAQUE: crearse como barbero', () =>
@@ -137,6 +150,14 @@ await caso('servicio sin duración (30 min, 1 bloque)', () => assertSucceeds(res
 await caso('correo con mayúsculas del mismo dueño', () => assertSucceeds(reservar(db('beto'), nueva(), 'beto', { inicio: hora(), extra: { userEmail: 'Beto@X.com' } })));
 await caso('reserva sin correo (no se envía confirmación)', () => assertSucceeds(reservar(db('beto'), nueva(), 'beto', { inicio: hora(), extra: { userEmail: '' } })));
 await caso('ATAQUE: confirmación a un correo ajeno (spam)', () => assertFails(reservar(db('beto'), nueva(), 'beto', { inicio: hora(), extra: { userEmail: 'victima@gmail.com' } })));
+await caso('ATAQUE: cuenta con correo sin verificar pide la confirmación a ese correo', () =>
+  assertFails(reservar(db('malo', { email: 'victima@gmail.com', email_verified: false }), nueva(), 'malo', { inicio: hora(), extra: { userEmail: 'victima@gmail.com' } })));
+await caso('cuenta sin verificar reserva sin correo de confirmación', () =>
+  assertSucceeds(reservar(db('malo', { email_verified: false }), nueva(), 'malo', { inicio: hora(), extra: { userEmail: '' } })));
+await caso('cuenta de celular reserva (sin correo de confirmación)', () =>
+  assertSucceeds(reservar(celular('cel'), nueva(), 'cel', { inicio: hora(), extra: { userEmail: '' } })));
+await caso('ATAQUE: cuenta de celular pide la confirmación a un correo', () =>
+  assertFails(reservar(celular('cel'), nueva(), 'cel', { inicio: hora(), extra: { userEmail: 'victima@gmail.com' } })));
 await caso('ATAQUE: reservar a nombre de otro usuario', () => assertFails(reservar(db('beto'), nueva(), 'ana', { inicio: hora() })));
 await caso('ATAQUE: precio manipulado ($1.000)', () => assertFails(reservar(db('beto'), nueva(), 'beto', { inicio: hora(), extra: { precio: 1000 } })));
 await caso('ATAQUE: nombre de servicio falso (texto que llega al barbero)', () => assertFails(reservar(db('beto'), nueva(), 'beto', { inicio: hora(), extra: { serviceName: 'Gana un premio en malo.co' } })));
@@ -198,6 +219,8 @@ await caso('ATAQUE: barbero cambia otros campos (precio)', () => assertFails(upd
 await caso('ATAQUE: valor cobrado negativo', () => assertFails(updateDoc(doc(db('luis'), 'citas/C6'), { estado: 'completada', precioFinal: -1 })));
 await caso('ATAQUE: valor cobrado que no es número', () => assertFails(updateDoc(doc(db('luis'), 'citas/C6'), { estado: 'completada', precioFinal: 'gratis' })));
 await caso('ATAQUE: barbero gestiona la cita de OTRO barbero', () => assertFails(updateDoc(doc(db('pedro'), 'citas/C6'), { estado: 'no-asistio' })));
+await caso('ATAQUE: cuenta sin verificar con el correo de un barbero gestiona sus citas', () =>
+  assertFails(updateDoc(doc(db('falso', { email_verified: false }), 'citas/C6'), { estado: 'no-asistio' })));
 await caso('ATAQUE: barbero sin perfil enlazado gestiona citas', () => assertFails(updateDoc(doc(db('suelto'), 'citas/C6'), { estado: 'cancelada' })));
 await caso('ATAQUE: cliente pone el valor cobrado de su cita', () => assertFails(updateDoc(doc(db('beto'), 'citas/C6'), { precioFinal: 1 })));
 await caso('barbero cancela su cita y libera los bloques', async () => {

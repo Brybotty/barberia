@@ -36,9 +36,15 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
     }
 
-    // Correo de la cuenta de Google que hace la petición (en minúsculas, como lo guarda la app).
+    // Correo de la cuenta que hace la petición (en minúsculas, como lo guarda la app).
     function emailDeLaCuenta() {
       return request.auth.token.email.lower();
+    }
+
+    // Google entrega el correo verificado y las cuentas del equipo (correo y contraseña) las crea el admin
+    // verificadas. Una cuenta creada desde fuera con un correo ajeno NO lo está: no cuenta como dueña de él.
+    function correoVerificado() {
+      return request.auth.token.email_verified == true;
     }
 
     // ---------- usuarios ----------
@@ -143,13 +149,14 @@ service cloud.firestore {
       // La confirmación por correo solo puede ir a la cuenta de quien reserva (evita usarla para spam).
       function correoPropio() {
         let correo = request.resource.data.get('userEmail', '');
-        return correo == '' || (correo is string && correo.lower() == emailDeLaCuenta());
+        return correo == '' || (correo is string && correoVerificado() && correo.lower() == emailDeLaCuenta());
       }
 
       // El barbero solo gestiona sus citas: las del perfil de /barberos enlazado a su correo.
       function esSuCita() {
         return resource.data.barberoId == 'cualquiera'
-          || get(/databases/$(database)/documents/barberos/$(resource.data.barberoId)).data.get('emailAsociado', '') == emailDeLaCuenta();
+          || (correoVerificado()
+              && get(/databases/$(database)/documents/barberos/$(resource.data.barberoId)).data.get('emailAsociado', '') == emailDeLaCuenta());
       }
 
       // El cliente solo ve sus citas; el staff ve todas.

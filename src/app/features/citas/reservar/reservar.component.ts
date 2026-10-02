@@ -8,6 +8,7 @@ import { Subject, switchMap } from 'rxjs';
 import { BARBERO_CUALQUIERA, Cita } from '../../../core/models/cita.model';
 import { Barbero } from '../../../core/models/barbero.model';
 import { Servicio, iconoDe } from '../../../core/models/servicio.model';
+import { AuthService } from '../../../core/services/auth.service';
 import { BarberosService } from '../../../core/services/barberos.service';
 import { CitasService, HorarioNoDisponibleError } from '../../../core/services/citas.service';
 import { ServiciosService } from '../../../core/services/servicios.service';
@@ -41,6 +42,7 @@ export class ReservarComponent implements OnInit {
   readonly iconoDe = iconoDe;
   private router = inject(Router);
   private auth = inject(Auth);
+  private authService = inject(AuthService);
   private citasService = inject(CitasService);
   private barberosService = inject(BarberosService);
   private serviciosService = inject(ServiciosService);
@@ -86,6 +88,8 @@ export class ReservarComponent implements OnInit {
   clienteApellido: string = '';
   clienteTelefono: string = '';
   clienteCorreo: string = '';
+  /** Solo con el correo verificado se envía la confirmación (las reglas lo exigen). */
+  correoVerificado = false;
 
   // Confirmación
   reservaConfirmada = false;
@@ -101,6 +105,10 @@ export class ReservarComponent implements OnInit {
       this.clienteNombre = nombres[0] || '';
       this.clienteApellido = nombres.slice(1).join(' ') || '';
       this.clienteCorreo = (user.email || '').toLowerCase();
+      // Quien entró con el celular ya lo tiene: se precarga (sin el +57).
+      if (user.phoneNumber && !this.clienteTelefono) this.clienteTelefono = user.phoneNumber.replace(/^\+57/, '');
+      // Si ya abrió el enlace de verificación, se refresca la sesión para que las reglas lo sepan.
+      this.authService.correoVerificado().then(verificado => this.correoVerificado = verificado);
     }
 
     this.barberosService.listar().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -299,6 +307,15 @@ export class ReservarComponent implements OnInit {
 
   // ---------- Paso 4: confirmar ----------
 
+  async reenviarVerificacion() {
+    try {
+      await this.authService.reenviarVerificacion();
+      this.notificaciones.exito('Enlace enviado', 'Abre el correo y toca el enlace. Luego vuelve a esta página.');
+    } catch {
+      this.notificaciones.error('No se pudo enviar el enlace', 'Espera unos minutos e inténtalo de nuevo.');
+    }
+  }
+
   get formularioInvalido(): boolean {
     return !this.horaSeleccionada || !this.clienteNombre.trim() || !this.clienteApellido.trim() || !this.clienteTelefono.trim();
   }
@@ -350,7 +367,8 @@ export class ReservarComponent implements OnInit {
       this.reservaDetalles = await this.citasService.reservar({
         userId: user.uid,
         userName: `${this.clienteNombre.trim()} ${this.clienteApellido.trim()}`,
-        userEmail: this.clienteCorreo.trim(),
+        // La confirmación solo puede ir a un correo verificado (las reglas rechazan otro).
+        userEmail: this.correoVerificado ? this.clienteCorreo.trim() : '',
         phone: this.clienteTelefono.trim(),
         servicioId: this.servicioSeleccionado.id!,
         serviceName: this.servicioSeleccionado.nombre,

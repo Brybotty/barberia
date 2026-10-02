@@ -289,12 +289,22 @@
                 <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Celular / WhatsApp *</span>
                 <input type="tel" [(ngModel)]="clienteTelefono" placeholder="Ej: 300 123 4567" autocomplete="tel" class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors">
               </label>
-              <label class="block">
-                <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Correo</span>
-                <!-- Solo lectura: la confirmación va al correo de la cuenta (las reglas no aceptan otro). -->
-                <input type="email" [value]="clienteCorreo" readonly tabindex="-1" aria-describedby="nota-correo" class="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-neutral-300 outline-none cursor-default">
-                <span id="nota-correo" class="block text-[11px] text-neutral-500 mt-1.5">Aquí te llega la confirmación de la cita.</span>
-              </label>
+              <!-- Solo lectura: la confirmación va al correo de la cuenta, y solo si está verificado (las reglas no aceptan otro).
+                   Las cuentas de celular no tienen correo: no se muestra. -->
+              @if (clienteCorreo) {
+                <label class="block">
+                  <span class="block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Correo</span>
+                  <input type="email" [value]="clienteCorreo" readonly tabindex="-1" aria-describedby="nota-correo" class="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-neutral-300 outline-none cursor-default">
+                  @if (correoVerificado) {
+                    <span id="nota-correo" class="block text-[11px] text-neutral-500 mt-1.5">Aquí te llega la confirmación de la cita.</span>
+                  } @else {
+                    <span id="nota-correo" class="block text-[11px] text-amber-300/90 mt-1.5">
+                      Verifica tu correo para recibir la confirmación (te enviamos un enlace al crear la cuenta).
+                      <button type="button" (click)="reenviarVerificacion()" class="underline underline-offset-2 font-bold hover:text-white">Reenviar enlace</button>
+                    </span>
+                  }
+                </label>
+              }
             </div>
 
             <div class="flex items-start gap-3 mt-8 bg-acento-500/[0.06] border border-acento-500/20 rounded-2xl p-4">

@@ -38,10 +38,24 @@ npm run demo     # emuladores + la página en http://localhost:4200
 | Rol | Cómo se obtiene | Qué puede hacer |
 |---|---|---|
 | `cliente` | Por defecto al iniciar sesión | Reservar, ver y cancelar sus citas |
-| `barbero` | El admin lo registra en *Staff & Barberos* con su email de Google | En *Mi panel* (`/barbero`): su agenda, sus cortes y su ganancia por período |
+| `barbero` | El admin lo registra en *Staff & Barberos* con su email (el de su cuenta) | En *Mi panel* (`/barbero`): su agenda, sus cortes y su ganancia por período |
 | `admin` | La cuenta `adminEmail` de la config del cliente (y la misma en `firestore.rules`) | Todo |
 
 El rol **solo lo puede cambiar un admin**; las reglas de Firestore impiden que un usuario modifique el suyo.
+
+### Cómo entra cada quien
+
+En `/login` hay tres formas, para todos por igual: **Google**, **correo y contraseña** (entrar, crear cuenta y
+"¿Olvidaste tu contraseña?") y **celular** (código por SMS; la primera vez pide el nombre). Al entrar, cada quien va
+según su rol: el admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
+
+- **Equipo:** sus cuentas se crean con el rol ya asignado (Firebase Authentication → *Agregar usuario*, con el correo
+  verificado, y su perfil en *Usuarios & Roles*). Entran con su correo y contraseña como cualquier persona.
+- **Correo sin verificar:** al crear la cuenta se envía un enlace. Mientras no lo abra, la persona puede reservar, pero
+  no le llega la confirmación por correo (las reglas solo confían en correos verificados).
+- **Celular:** solo números de Colombia (+57). En Firebase, la política de regiones de SMS permite solo `CO`; eso evita
+  cobros por SMS a otros países. Cada SMS tiene costo en el plan Blaze (lo cobra Google por mensaje).
+- Los correos de Firebase (verificar y cambiar contraseña) y el SMS salen en español (`auth.languageCode = 'es'`).
 
 ### Cortes y ganancias
 

@@ -86,3 +86,10 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animar-zoom-lento { animation: none; }
 }
+
+/* Formularios del login */
+@layer components {
+  .etiqueta-login { @apply block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2; }
+  .campo-login { @apply w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors; }
+  .boton-login { @apply w-full bg-acento-500 hover:bg-acento-400 disabled:opacity-50 text-sobre-acento font-black py-3.5 rounded-xl transition-all active:scale-95; }
+}

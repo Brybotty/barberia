@@ -166,7 +166,7 @@ const PESTANAS: Pestana[] = [
                               <div class="w-8 h-8 rounded-full bg-neutral-700 flex items-center justify-center text-xs text-white uppercase">{{ u.nombre ? u.nombre.charAt(0) : 'U' }}</div>
                               {{ u.nombre }}
                             </td>
-                            <td class="px-6 py-4 text-neutral-400">{{ u.email }}</td>
+                            <td class="px-6 py-4 text-neutral-400">{{ u.email || u.telefono }}</td>
                             <td class="px-6 py-4">
                               <span class="px-3 py-1.5 text-[10px] uppercase tracking-widest font-black rounded-lg"
                                 [ngClass]="{

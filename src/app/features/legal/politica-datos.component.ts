@@ -48,9 +48,9 @@ import { CLIENTE } from '../../config/cliente';
 
       <h2 id="datos">2. Qué datos recolectamos</h2>
       <ul>
-        <li><strong>Identificación y contacto:</strong> nombre, correo electrónico de tu cuenta de Google y número de celular.</li>
+        <li><strong>Identificación y contacto:</strong> nombre, correo electrónico y número de celular (los de la cuenta con la que entras —Google, correo o celular— y los que nos das al reservar).</li>
         <li><strong>Reservas:</strong> servicios reservados, fechas y horas, barbero elegido, valor y estado de cada cita.</li>
-        <li><strong>Navegación:</strong> tu sesión la gestiona Google. No usamos cookies de publicidad propias; los videos de Instagram y el mapa de Google que mostramos pueden usar sus propias cookies, según las políticas de esas plataformas.</li>
+        <li><strong>Navegación:</strong> tu sesión la gestiona Firebase (Google). No usamos cookies de publicidad propias; los videos de Instagram y el mapa de Google que mostramos pueden usar sus propias cookies, según las políticas de esas plataformas.</li>
       </ul>
       <p>No recolectamos datos sensibles (salud, origen étnico, creencias, etc.) ni datos de tarjetas o cuentas bancarias.</p>
 
@@ -66,7 +66,7 @@ import { CLIENTE } from '../../config/cliente';
       <h2 id="terceros">4. Con quién los compartimos</h2>
       <p>No vendemos ni alquilamos tus datos. Solo los compartimos con quienes nos ayudan a prestarte el servicio, que los tratan por nuestra cuenta y con medidas de seguridad:</p>
       <ul>
-        <li><strong>Google (Firebase):</strong> aloja la página, las cuentas y la base de datos. Sus servidores pueden estar fuera de Colombia, lo que implica una transmisión internacional de datos a un proveedor con estándares adecuados de protección.</li>
+        <li><strong>Google (Firebase):</strong> aloja la página, las cuentas y la base de datos, y envía los códigos por SMS y los correos para verificar tu cuenta o cambiar tu contraseña. Sus servidores pueden estar fuera de Colombia, lo que implica una transmisión internacional de datos a un proveedor con estándares adecuados de protección.</li>
         <li><strong>Resend:</strong> envía los correos de confirmación de tus citas (tu nombre, tu correo y los datos de la cita). Sus servidores están fuera de Colombia.</li>
         <li><strong>Autoridades:</strong> cuando una norma o una orden judicial lo exija.</li>
       </ul>
