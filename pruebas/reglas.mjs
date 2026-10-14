@@ -643,6 +643,83 @@ await caso('admin elimina una cita con sus bloques y su cupo', () => {
 });
 
 // ---------------------------------------------------------------------------
+seccion('agendas recurrentes');
+// Dentro de los 14 días de la agenda continua y lejos de los días que usa turno() (4 a 10).
+const RECURRENTE = enDias(14);
+/** Lo que guarda el panel (RecurrenciasService.crear). */
+const recurrencia = (extra = {}) => ({
+  clienteNombre: 'Juan Camilo', clienteTelefono: '3001234567', servicioId: 'S4', serviceName: 'Rápido', precio: 30000,
+  duracionMinutos: 60, barberoId: 'B1', barberoNombre: 'Luis', frecuencia: 'semanal', hora: '17:20', desde: RECURRENTE,
+  activa: true, creadoEn: new Date().toISOString(), actualizadoEn: new Date().toISOString(), ...extra,
+});
+await caso('admin crea una agenda recurrente (con la duración que elija)', () => assertSucceeds(setDoc(doc(db('admin'), 'recurrencias/R1'), recurrencia())));
+await caso('admin lee las agendas recurrentes', () => assertSucceeds(getDocs(collection(db('admin'), 'recurrencias'))));
+await caso('admin cambia la hora y la frecuencia', () =>
+  assertSucceeds(updateDoc(doc(db('admin'), 'recurrencias/R1'), { hora: '18:00', frecuencia: 'quincenal', actualizadoEn: 'v2' })));
+await caso('admin pausa la agenda', () => assertSucceeds(updateDoc(doc(db('admin'), 'recurrencias/R1'), { activa: false, actualizadoEn: 'v3' })));
+await caso('ATAQUE: un cambio sin actualizadoEn nuevo (la función no se enteraría)', () =>
+  assertFails(updateDoc(doc(db('admin'), 'recurrencias/R1'), { hora: '19:00' })));
+await caso('ATAQUE: ni el admin escribe lo que anota la función (hasta dónde va, qué omitió)', async () => {
+  await assertFails(updateDoc(doc(db('admin'), 'recurrencias/R1'), { generadaHasta: enDias(300), actualizadoEn: 'v4' }));
+  await assertFails(setDoc(doc(db('admin'), 'recurrencias/R2'), recurrencia({ procesadaEn: 'x' })));
+});
+for (const [nombre, extra] of [
+  ['una hora fuera de la rejilla de 20 minutos (5:30)', { hora: '17:30' }],
+  ['una duración que no es de bloques de 20 (30 min)', { duracionMinutos: 30 }],
+  ['una duración de un día entero', { duracionMinutos: 1440 }],
+  ['un turno que pasa de la medianoche', { hora: '23:40', duracionMinutos: 40 }],
+  ['una frecuencia inventada', { frecuencia: 'diaria' }],
+  ['un celular que no es colombiano', { clienteTelefono: '+1 555 0100' }],
+  ['un cliente sin nombre', { clienteNombre: '' }],
+  ['un nombre de 5.000 letras', { clienteNombre: 'x'.repeat(5000) }],
+  ['una fecha de inicio que no es fecha', { desde: 'mañana' }],
+  ['un precio negativo', { precio: -1 }],
+  ['campos inventados', { notas: 'hola' }],
+]) {
+  await caso(`ATAQUE: agenda recurrente con ${nombre}`, () => assertFails(setDoc(doc(db('admin'), `recurrencias/MAL${++n}`), recurrencia(extra))));
+}
+await caso('ATAQUE: barbero lee o crea agendas recurrentes', async () => {
+  await assertFails(getDocs(collection(db('luis'), 'recurrencias')));
+  await assertFails(setDoc(doc(db('luis'), 'recurrencias/R3'), recurrencia()));
+});
+await caso('ATAQUE: cliente o visitante crean, leen o borran agendas recurrentes', async () => {
+  await assertFails(setDoc(doc(db('ana'), 'recurrencias/R3'), recurrencia()));
+  await assertFails(getDoc(doc(db('ana'), 'recurrencias/R1')));
+  await assertFails(getDoc(doc(anon(), 'recurrencias/R1')));
+  await assertFails(deleteDoc(doc(db('ana'), 'recurrencias/R1')));
+});
+
+// Un turno que apartó la función (Admin SDK, sin reglas): cita sin cuenta, con su serie, y sus bloques.
+const turnoRecurrente = bloques('B1', RECURRENTE, 1040, 60);
+await env.withSecurityRulesDisabled(async ctx => {
+  const f = ctx.firestore();
+  await setDoc(doc(f, 'citas/R1_turno'), {
+    userId: '', userName: 'Juan Camilo', userEmail: '', phone: '3001234567', servicioId: 'S4', serviceName: 'Rápido', precio: 30000,
+    duracionMinutos: 60, barberoId: 'B1', barberoNombre: 'Luis', dia: RECURRENTE, hora: '17:20', horaStr: '5:20 PM',
+    fecha: `${RECURRENTE}T22:20:00.000Z`, estado: 'pendiente', creadoEn: new Date().toISOString(), slotIds: turnoRecurrente,
+    recurrenciaId: 'R1', frecuencia: 'semanal',
+  });
+  for (const id of turnoRecurrente) await setDoc(doc(f, `slots/${id}`), { barberoId: 'B1', dia: RECURRENTE, hora: `${id.slice(-4, -2)}:${id.slice(-2)}`, citaId: 'R1_turno' });
+});
+await caso('ATAQUE: un cliente reserva encima de un turno recurrente (justo después sí puede)', async () => {
+  const u = fresco();
+  await assertFails(reservar(db(u), nueva(), u, { dia: RECURRENTE, inicio: 1060, servicio: 'S4' }));
+  await assertSucceeds(reservar(db(u), nueva(), u, { dia: RECURRENTE, inicio: 1100, servicio: 'S4' }));
+});
+await caso('el barbero ve el turno recurrente y lo marca como hecho', async () => {
+  await assertSucceeds(getDoc(doc(db('luis'), 'citas/R1_turno')));
+  await assertSucceeds(updateDoc(doc(db('luis'), 'citas/R1_turno'), { estado: 'completada', precioFinal: 30000 }));
+});
+await caso('ATAQUE: el barbero se cambia el turno a otra serie o le quita la marca', () =>
+  assertFails(updateDoc(doc(db('luis'), 'citas/R1_turno'), { recurrenciaId: 'OTRA', estado: 'no-asistio' })));
+await caso('ATAQUE: un cliente no ve los turnos recurrentes (no son de ninguna cuenta)', () => assertFails(getDoc(doc(db('ana'), 'citas/R1_turno'))));
+await caso('ATAQUE: un cliente no se inventa un turno recurrente al reservar', () => {
+  const u = fresco();
+  return assertFails(reservar(db(u), nueva(), u, { ...turno(), extra: { recurrenciaId: 'R1', frecuencia: 'semanal' } }));
+});
+await caso('admin borra una agenda recurrente', () => assertSucceeds(deleteDoc(doc(db('admin'), 'recurrencias/R1'))));
+
+// ---------------------------------------------------------------------------
 seccion('colecciones cerradas (tienda retirada y cualquier otra)');
 for (const ruta of ['productos/P1', 'pedidos/X1', 'movimientosInventario/M1', 'cualquiera/X1']) {
   await caso(`ATAQUE: leer ${ruta.split('/')[0]}`, () => assertFails(getDoc(doc(anon(), ruta))));

@@ -267,6 +267,14 @@ export function diaLargo(dia: string): string {
   return `${fecha.getDate()} de ${MESES_LARGOS[fecha.getMonth()]}`;
 }
 
+const DIAS_CORTOS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
+/** '2026-10-17' -> 'sáb 17 oct' (para listas de fechas y botones angostos). */
+export function fechaCorta(dia: string): string {
+  const fecha = fechaDesdeClave(dia);
+  return `${DIAS_CORTOS[fecha.getDay()]} ${fecha.getDate()} ${MESES_LARGOS[fecha.getMonth()].slice(0, 3)}`;
+}
+
 /** Suma días a una clave de día: ('2026-10-01', 15) -> '2026-10-16'. */
 export function sumarDias(dia: string, dias: number): string {
   const fecha = fechaDesdeClave(dia);

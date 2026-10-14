@@ -70,7 +70,11 @@ export class NotificationService {
   private citasNuevasPara(perfil: Usuario | null): Observable<Cita[]> {
     if (!perfil || (perfil.rol !== 'admin' && perfil.rol !== 'barbero')) return EMPTY;
 
-    const nuevas$ = this.citas.creadasDesde(new Date().toISOString());
+    // Los turnos de una agenda recurrente los aparta el sistema de a varios (uno por semana): no son reservas nuevas
+    // y, si avisaran, sonarían nueve veces seguidas.
+    const nuevas$ = this.citas.creadasDesde(new Date().toISOString()).pipe(
+      map(citas => citas.filter(c => !c.recurrenciaId)),
+    );
     if (perfil.rol === 'admin') return nuevas$;
 
     // Las cuentas de celular no tienen correo: no pueden estar enlazadas a un perfil de barbero.

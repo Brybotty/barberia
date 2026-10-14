@@ -29,6 +29,9 @@ export interface Cita {
   reemplazaA?: string;
   /** Al reagendar: la cita nueva que reemplazó a esta (queda cancelada). */
   reemplazadaPor?: string;
+  /** Turno de una agenda recurrente (lo apartó el sistema): no se avisa por correo. */
+  recurrenciaId?: string;
+  frecuencia?: 'semanal' | 'quincenal' | 'mensual';
 }
 
 export interface Negocio {

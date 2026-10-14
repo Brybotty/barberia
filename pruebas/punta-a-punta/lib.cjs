@@ -57,6 +57,22 @@ async function doc(ruta) {
   const d = await r.json();
   return { id: d.name.split('/').pop(), ...plano({ mapValue: { fields: d.fields } }) };
 }
+function aFirestore(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === 'string') return { stringValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(aFirestore) } };
+  return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, aFirestore(x)])) } };
+}
+/** Escribe (o reemplaza) un documento como "owner", sin reglas: para preparar un caso. */
+async function guardarDoc(ruta, datos) {
+  const r = await fetch(`${FS}/${ruta}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer owner' },
+    body: JSON.stringify({ fields: aFirestore(datos).mapValue.fields }),
+  });
+  if (!r.ok) throw new Error(`No se guardó ${ruta}: ${r.status} ${await r.text()}`);
+}
 
 // --- Cuentas del emulador de Auth ---
 async function crearCuenta(email, clave, nombre) {
@@ -171,4 +187,4 @@ function correosDesde(rutaLog, desde) {
     .concat([...log.matchAll(/"para":"([a-z]+)","motivo":"([a-z]+)"/g)].map(m => `${m[2]}:${m[1]}`));
 }
 
-module.exports = { RAIZ, LOG_EMULADORES, reiniciar, BASE, CAPTURAS, comprobar, seccion, resumen, docs, doc, crearCuenta, abrirNavegador, sesion, elegirCookies, limpia, texto, esperarTexto, esperarSinTexto, pausa, clic, escribir, captura, ir, entrar, desborda, correosDesde };
+module.exports = { RAIZ, LOG_EMULADORES, reiniciar, BASE, CAPTURAS, comprobar, seccion, resumen, docs, doc, guardarDoc, crearCuenta, abrirNavegador, sesion, elegirCookies, limpia, texto, esperarTexto, esperarSinTexto, pausa, clic, escribir, captura, ir, entrar, desborda, correosDesde };

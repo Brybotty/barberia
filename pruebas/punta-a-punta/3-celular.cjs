@@ -226,6 +226,54 @@ async function revisar(pagina, nombre) {
   await pausa(1000);
   await revisar(a.pagina, 'admin, inicio');
   await captura(a.pagina, '62-movil-admin-inicio');
+
+  // Agendas recurrentes: la pestaña, el botón flotante (sobre la barra de abajo) y la ventana de tres pasos.
+  const enDialogo = (legend, accion) => a.pagina.evaluate((legend, accion) => {
+    const campo = [...document.querySelectorAll('[role="dialog"] fieldset')].find(f => f.querySelector('legend')?.textContent.trim() === legend);
+    const boton = campo && [...campo.querySelectorAll('button')].find(b => !b.disabled && (accion === 'primero' || b.textContent.includes(accion)));
+    boton?.click();
+    return !!boton;
+  }, legend, accion);
+  await a.pagina.evaluate(() => [...document.querySelectorAll('nav[aria-label="Secciones del panel"] button')].filter(x => x.getClientRects().length).find(x => x.textContent.trim() === 'Recurrentes').click());
+  await esperarTexto(a.pagina, 'Aún no hay agendas recurrentes');
+  await pausa(700);
+  await revisar(a.pagina, 'admin, agendas recurrentes');
+  const fab = await a.pagina.evaluate(() => {
+    const boton = document.querySelector('button[aria-label="Nueva agenda recurrente"]');
+    const barra = [...document.querySelectorAll('nav[aria-label="Secciones del panel"]')].find(n => n.getClientRects().length);
+    if (!boton || !barra) return null;
+    const r = boton.getBoundingClientRect();
+    return { fijo: getComputedStyle(boton).position === 'fixed', sobreLaBarra: r.bottom <= barra.getBoundingClientRect().top - 4, dentro: r.left >= 0 && r.right <= innerWidth, alto: Math.round(r.height) };
+  });
+  comprobar('el botón flotante de "Nueva agenda recurrente" queda fijo, sobre la barra de abajo y grande para el dedo', !!fab && fab.fijo && fab.sobreLaBarra && fab.dentro && fab.alto >= 48, JSON.stringify(fab));
+  await captura(a.pagina, '66g-movil-recurrentes');
+  await a.pagina.click('button[aria-label="Nueva agenda recurrente"]');
+  await esperarTexto(a.pagina, 'I · Cliente');
+  await pausa(600);
+  comprobar('mientras la ventana está abierta el botón flotante no estorba', !(await a.pagina.$('button[aria-label="Nueva agenda recurrente"]')));
+  await revisar(a.pagina, 'agenda recurrente, paso I (cliente)');
+  await captura(a.pagina, '66h-movil-recurrente-cliente');
+  await clic(a.pagina, 'Continuar sin agregar cliente', 'button');
+  await esperarTexto(a.pagina, 'II · Servicio');
+  await revisar(a.pagina, 'agenda recurrente, paso II (servicio)');
+  await clic(a.pagina, 'Acicale sencillo', '[role="dialog"] button');
+  await esperarTexto(a.pagina, 'III · Agenda');
+  await enDialogo('Día', 'primero');
+  await a.pagina.waitForFunction(() => [...document.querySelectorAll('[role="dialog"] fieldset')]
+    .some(f => f.querySelector('legend')?.textContent.trim() === 'Hora' && f.querySelectorAll('button[aria-pressed]').length > 0), { timeout: 15000 });
+  await pausa(600);
+  comprobar('en celular se elige el día y aparecen sus horas, con una libre para elegir', await enDialogo('Hora', 'Libre'));
+  await pausa(400);
+  await revisar(a.pagina, 'agenda recurrente, paso III (agenda)');
+  const crear = await a.pagina.evaluate(() => {
+    const r = [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.includes('Crear cita recurrente')).getBoundingClientRect();
+    return { aLaVista: r.top >= 0 && r.bottom <= innerHeight, alto: Math.round(r.height) };
+  });
+  comprobar('"Crear cita recurrente" queda siempre a la vista abajo, sin tener que bajar', crear.aLaVista && crear.alto >= 40, JSON.stringify(crear));
+  await captura(a.pagina, '66i-movil-recurrente-agenda');
+  await a.pagina.keyboard.press('Escape');
+  await pausa(300);
+
   for (const [pestana, espera, archivo] of [['Citas', 'Agenda del día', '63-movil-admin-citas'], ['Ganancias', 'Queda para la barbería', null], ['Servicios', 'Acicale Premium', null],
     ['Equipo', 'trip.demo@example.com', '64-movil-admin-equipo'], ['Usuarios', 'Usuarios y roles', '65-movil-admin-usuarios'], ['Ajustes', 'Horario de atención', '66-movil-admin-ajustes']]) {
     await a.pagina.evaluate(t => [...document.querySelectorAll('nav[aria-label="Secciones del panel"] button')].filter(x => x.getClientRects().length).find(x => x.textContent.trim() === t).click(), pestana);

@@ -12,9 +12,10 @@ código sirve a varios clientes (`src/app/config/clientes/`).
 ```bash
 npm install
 npm start                # http://localhost:4200 (usa el Firebase real del cliente)
-npm test                 # 54 pruebas de la app (Karma)
-npm run test:reglas      # 202 pruebas de firestore.rules + 43 de storage.rules (emuladores, no toca datos reales)
-npm run test:funciones   # 16 pruebas de los correos (functions/)
+npm test                 # 59 pruebas de la app (Karma)
+npm run test:reglas      # 232 pruebas de firestore.rules + 43 de storage.rules (emuladores, no toca datos reales)
+npm run test:funciones   # 26 pruebas de los correos y del plan de las agendas recurrentes (functions/)
+npm run test:recurrentes # 11 pruebas de las agendas recurrentes contra el emulador de Firestore
 npm run build            # build de producción en dist/barberia/browser
 ```
 
@@ -148,8 +149,9 @@ admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
 
 ### Barbero (`/barbero`)
 
-- **Agenda:** turnos de hoy ("Hecho", que pide el valor cobrado, y "No asistió") y próximas citas. Cada cita trae
-  **"Recordarle por WhatsApp"**: abre el chat del cliente con el mensaje ya escrito (no gasta correos ni dinero).
+- **Agenda:** turnos de hoy ("Hecho", que pide el valor cobrado, y "No asistió") y próximas citas; los de clientes
+  fijos llevan la marca **Recurrente**. Cada cita trae **"Recordarle por WhatsApp"**: abre el chat del cliente con el
+  mensaje ya escrito (no gasta correos ni dinero).
 - **Mi disponibilidad:** días libres de cada semana, descanso fijo de cada día (almuerzo) y cierre de un día o de
   unas horas (permiso, vacaciones). La reserva deja de ofrecer esos ratos al instante. Las citas ya agendadas no se
   tocan.
@@ -160,12 +162,42 @@ admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
 - **Inicio:** citas e ingresos de hoy, cortes e inasistencias de la semana y lo que sigue hoy. Con la agenda por
   periodos, hasta cuándo está abierta y el botón para abrir 15 días más.
 - **Citas:** calendario y lista; editar, mover, completar o eliminar.
-- **Cortes y ganancias:** lo de todo el equipo, cuánto le corresponde a cada barbero y cuánto queda para la barbería.
+- **Agendas recurrentes:** clientes fijos que vienen cada semana, cada 2 semanas o cada 4 semanas ("mensual"), el
+  mismo día y a la misma hora (ver abajo).
+- **Cortes y ganancias:** lo de todo el equipo, cuánto le corresponde a cada barbero y cuánto queda para la barbería,
+  y aparte lo de los clientes fijos (turnos hechos, lo generado y cuántas veces no vinieron).
 - **Servicios y precios:** el menú. El precio y la duración de aquí son los que valen al reservar.
 - **Equipo:** nombre, rol, **foto (se sube a Storage desde el panel)**, Instagram, orden, correo y comisión de cada
   barbero, y su disponibilidad. **La página de inicio y la reserva muestran lo que haya aquí** (una sola fuente).
 - **Usuarios y roles**, y **Ajustes:** agenda de reservas (por periodos o siempre abierta), horario de atención
   (horas, días que abre y fechas cerradas) y la sección de cursos. Todo se cambia sin publicar nada.
+
+### Agendas recurrentes (clientes fijos)
+
+En *Admin → Agendas recurrentes*, el botón flotante del calendario (en celular) o **Nueva agenda recurrente**:
+
+1. **Cliente:** se busca por nombre o celular entre los clientes de las citas, las cuentas registradas y las otras
+   agendas; o **Crear cliente** (nombre y celular), o **Continuar sin agregar cliente** (el nombre se escribe al final).
+2. **Servicio.**
+3. **Agenda:** barbero, tipo de recurrencia (semanal, quincenal = cada 2 semanas, mensual = cada 4 semanas), día,
+   fecha del primer turno, **duración** (de 20 en 20 min; puede ser distinta de la del catálogo) y **hora**. Cada hora
+   dice si está libre, ocupada en algunas fechas (esas no se apartan) u ocupada en todas, o si cae en el descanso del
+   barbero. Un resumen dice qué turnos se apartan y cuáles no, y por qué.
+
+Un mismo cliente puede tener varias agendas. Al guardar, la Cloud Function **`programarRecurrencia`** aparta los
+turnos de verdad (una cita sin cuenta y sus bloques en `slots`, como una reserva) hasta **62 días** adelante, que es lo
+más lejos que puede reservar un cliente; **`extenderRecurrencias`** suma cada noche el turno que entra a ese
+horizonte. Así ningún cliente alcanza a reservar la hora de un cliente fijo, aunque nadie abra el panel.
+
+- Los turnos salen en la agenda (admin y barbero) con la marca **Recurrente · Semanal** y se marcan "Hecho" o "No
+  asistió" como cualquier cita, así que cuentan en las ganancias.
+- Si una fecha ya estaba ocupada, la barbería cierra (fecha de *Ajustes*), es el día libre del barbero o cae en su
+  descanso, ese día no se aparta y la tarjeta lo dice. La serie sigue con los demás.
+- **Editar** una agenda quita sus turnos por venir y los vuelve a apartar con los datos nuevos (los atendidos no se
+  tocan). **Pausar** suelta sus turnos por venir; **Reanudar** los vuelve a apartar. **Eliminar** suelta los que
+  faltan y deja los que ya pasaron. Para quitar un solo día (el cliente viaja), se borra ese turno en *Citas*.
+- **No envían correos** (ni al crearse ni al cambiar) ni suenan como "Nueva reserva" en el panel: solo aparecen en
+  la agenda de mañana que ya le llega al barbero.
 
 ## Correos de citas
 
@@ -178,7 +210,8 @@ Cloud Functions de `functions/` que envían con [Resend](https://resend.com):
 | `avisarCambioDeCita` | Se cancela, o el admin la mueve | "Tu cita quedó cancelada" / "cambió de horario" | "Se canceló…" / "Cita movida…" |
 | `recordarCitas` | Todos los días a las 6:00 p. m. (Colombia) | Recordatorio a quien tiene cita mañana (no si reservó hace menos de 12 h) | **Su agenda de mañana**, en un solo correo (solo si tiene citas) |
 
-El cliente recibe los correos en el de su cuenta (no se puede cambiar: así nadie usa la página para mandar correos a
+Los turnos de las agendas recurrentes no envían ninguno de estos correos (salvo aparecer, marcados, en la agenda de
+mañana del barbero). El cliente recibe los correos en el de su cuenta (no se puede cambiar: así nadie usa la página para mandar correos a
 terceros). El barbero, en el correo de su perfil de *Equipo*. Si un envío falla no afecta la reserva; queda en los
 logs (`npm --prefix functions run logs`). Plan gratis de Resend: 100 correos al día y 3.000 al mes.
 
@@ -206,7 +239,12 @@ valor). En los emuladores los correos no salen: se muestran en el log.
   solo puede cambiar su propia disponibilidad; lo demás, el admin.
 - `barberosPrivado/{id}` (mismo id): `emailAsociado` y `comision`. Solo el admin, y cada barbero el suyo.
 - `citas/{id}`: reservas con datos del cliente. Solo las leen su dueño y el staff. Llevan `cupoId` y, si vienen de
-  un cambio de horario, `reemplazaA` (la anterior queda cancelada con `reemplazadaPor`).
+  un cambio de horario, `reemplazaA` (la anterior queda cancelada con `reemplazadaPor`). Los turnos de una agenda
+  recurrente tienen ID `{recurrenciaId}_{AAAAMMDD}`, `userId` vacío, `recurrenciaId` y `frecuencia`.
+- `recurrencias/{id}`: agendas recurrentes (solo el admin): cliente, servicio, duración, barbero, `frecuencia`
+  (`semanal` | `quincenal` | `mensual`), `hora`, `desde` (primer día; el día de la semana sale de ahí), `activa` y
+  `actualizadoEn`. La función anota `generadaHasta`, `procesadaEn` (la versión que ya agendó) y `omitidas` (días por
+  venir que no pudo apartar, con el motivo); desde el navegador esos tres campos no se escriben.
 - `slots/{barberoId}_{YYYY-MM-DD}_{HHmm}`: un documento por cada bloque de 20 minutos ocupado, sin datos personales y de
   lectura pública. De una cita (`citaId`) o un cierre del barbero (`bloqueo: true`, `motivo`).
 - `cupos/{uid}_{YYYY-MM-DD}_{1..3}`: una reserva activa del cliente ese día.
@@ -267,12 +305,16 @@ al repositorio: es un secreto.
 ## Publicar
 
 ```bash
-npm run test:reglas && npm test -- --watch=false --browsers=ChromeHeadless && npm run test:funciones
+npm run test:reglas && npm test -- --watch=false --browsers=ChromeHeadless && npm run test:funciones && npm run test:recurrentes
 npm run build
 firebase deploy --only firestore:rules,firestore:indexes,storage   # reglas e índices primero
 FUNCTIONS_DISCOVERY_TIMEOUT=60 firebase deploy --only functions
 firebase deploy --only hosting
 ```
+
+- Las **agendas recurrentes** necesitan las tres cosas: las reglas (colección `recurrencias`), las funciones
+  (`programarRecurrencia` y `extenderRecurrencias`, y los correos que ya no avisan de los turnos fijos) y la página.
+  Publicar la página sin las reglas deja la pestaña sin poder leer ni guardar.
 
 - **Storage** debe estar activado en la consola de Firebase antes de desplegar sus reglas. Para que otros admins
   (no solo `adminEmail`) suban fotos, despliega `--only storage` en una terminal interactiva y acepta el permiso que

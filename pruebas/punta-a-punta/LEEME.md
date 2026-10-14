@@ -7,7 +7,8 @@ Recorren la página de verdad en un Chrome sin ventana, contra los **emuladores*
 |---|---|
 | `1-cliente.cjs` | Aviso de cookies, inicio, menú, página que no existe; reservar sin sesión, entrar al final, confirmar; mis reservas, cambiar horario (un solo correo), cancelar, reservar de nuevo y cupo por día |
 | `2-equipo.cjs` | Admin: inicio, citas, equipo (subida de foto a Storage), usuarios, ajustes de horario y agenda por periodos (abrir, alargar y cerrar, con un visitante que lo ve sin recargar). Barbero: agenda, recordatorio por WhatsApp, día libre, descanso y cierre de horas |
-| `3-celular.cjs` | A 360 y 390 px: nada se sale a lo ancho, textos de 11 px o más, zonas táctiles de 40 px o más, barra de accesos rápidos y hoja de horario, botón de confirmar fijo abajo (sin la barra encima), y la política de seguridad estricta sin bloqueos |
+| `3-celular.cjs` | A 360 y 390 px: nada se sale a lo ancho, textos de 11 px o más, zonas táctiles de 40 px o más, barra de accesos rápidos y hoja de horario, botón de confirmar fijo abajo (sin la barra encima), agendas recurrentes (botón flotante y ventana de tres pasos), y la política de seguridad estricta sin bloqueos |
+| `4-recurrentes.cjs` | Agendas recurrentes: crear (cliente nuevo, de la lista o sin cliente), horas libres u ocupadas en todas las fechas, la Cloud Function apartando los turnos (sin correos ni avisos), la reserva que ya no ofrece esas horas, la marca en la agenda y en el panel del barbero, "Hecho", editar, pausar, reanudar, eliminar y las ganancias. **Necesita el emulador de funciones** |
 
 ## Cómo correrlas
 
@@ -30,6 +31,7 @@ node pruebas/punta-a-punta/servidor.cjs dist/verif/browser firebase.json 4300
 node pruebas/punta-a-punta/1-cliente.cjs
 node pruebas/punta-a-punta/2-equipo.cjs
 node pruebas/punta-a-punta/3-celular.cjs
+node pruebas/punta-a-punta/4-recurrentes.cjs
 
 # Al terminar: cierra las dos terminales y deja el repositorio como estaba
 node pruebas/punta-a-punta/preparar.cjs quitar

@@ -1,13 +1,17 @@
 /**
- * Cloud Functions de la barbería: correos de citas por medio de Resend (https://resend.com).
+ * Cloud Functions de la barbería: correos de citas por medio de Resend (https://resend.com) y agendas recurrentes.
  *
  * - avisarCitaNueva (al crearse una cita): confirmación al cliente (con la cita para su calendario)
  *   y aviso al barbero. Si la cita reemplaza a otra (el cliente la reagendó), avisa del cambio de horario.
  * - avisarCambioDeCita (al actualizarse): si se cancela o cambia de día/hora, avisa a los dos.
  * - recordarCitas (todos los días a las 6:00 p. m., hora de Colombia): recordatorio a quien tiene cita mañana
  *   y, a cada barbero con citas, su agenda del día siguiente en un solo correo.
+ * - programarRecurrencia (al crear, editar, pausar o borrar una agenda recurrente): aparta sus turnos (o los quita).
+ * - extenderRecurrencias (todas las noches): aparta los turnos que entran al horizonte de cada agenda recurrente.
  *
  * Solo se avisa de citas que aún no pasan. Si un correo falla, la cita no se afecta: queda en el log.
+ * Los turnos de las agendas recurrentes no envían correos (ni al crearse ni al cambiar): el cupo de Resend es
+ * para las reservas. Sí salen en la agenda de mañana del barbero, que ya es un solo correo.
  *
  * Configuración (ver README): la llave de Resend en el secreto RESEND_API_KEY
  * (`firebase functions:secrets:set RESEND_API_KEY`) y los datos del negocio en functions/.env.<proyecto>.
@@ -15,15 +19,17 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
+import { programarSerie } from './agenda-recurrente';
 import { Cita, Correo, Negocio, debeAvisar, emailValido, esReemplazoDe, mananaEnColombia, necesitaRecordatorio, tipoDeCambio } from './correo';
 import {
   correoAgendaBarbero, correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio,
   correoReprogramadaBarbero, correoReprogramadaCliente,
 } from './mensajes';
+import type { Recurrencia } from './recurrencias';
 
 initializeApp();
 // La base de datos está en nam5 (Estados Unidos): las funciones quedan en la misma zona.
@@ -49,7 +55,8 @@ type Destino = 'cliente' | 'barbero';
 export const avisarCitaNueva = onDocumentCreated({ document: 'citas/{citaId}', secrets: [RESEND_API_KEY] }, async event => {
   const cita = event.data?.data() as Cita | undefined;
   const citaId = event.params.citaId;
-  if (!cita || !debeAvisar(cita)) return;
+  // Los turnos de una agenda recurrente los aparta el sistema: no se avisa de cada uno.
+  if (!cita || !debeAvisar(cita) || cita.recurrenciaId) return;
 
   const negocio = datosDelNegocio();
   const emailBarbero = await emailDelBarbero(cita.barberoId);
@@ -82,7 +89,7 @@ export const avisarCambioDeCita = onDocumentUpdated({ document: 'citas/{citaId}'
   const antes = event.data?.before.data() as Cita | undefined;
   const despues = event.data?.after.data() as Cita | undefined;
   const citaId = event.params.citaId;
-  if (!antes || !despues) return;
+  if (!antes || !despues || despues.recurrenciaId) return;
   const cambio = tipoDeCambio(antes, despues);
   if (!cambio) return;
 
@@ -130,6 +137,41 @@ export const recordarCitas = onSchedule(
       agendas++;
     }
     logger.info('Recordatorios del día', { dia, citas: citas.size, enviados, agendas });
+  },
+);
+
+/**
+ * Agenda recurrente creada, editada, pausada o borrada: aparta sus turnos con los datos nuevos (o los quita).
+ * La función anota su avance en el mismo documento; eso no cambia `actualizadoEn` y no se vuelve a procesar.
+ */
+export const programarRecurrencia = onDocumentWritten({ document: 'recurrencias/{recurrenciaId}', timeoutSeconds: 300 }, async event => {
+  const antes = event.data?.before.data() as Recurrencia | undefined;
+  const despues = event.data?.after.data() as Recurrencia | undefined;
+  const recurrenciaId = event.params.recurrenciaId;
+  if (antes && despues && antes.actualizadoEn === despues.actualizadoEn) return;
+  const { creadas, omitidas, quitadas, interrumpida } = await programarSerie(getFirestore(), recurrenciaId, { regenerar: true });
+  logger.info('Agenda recurrente', { recurrenciaId, accion: despues ? (despues.activa ? 'agendar' : 'pausar') : 'borrar', creadas, omitidas: omitidas.length, quitadas, interrumpida });
+});
+
+/**
+ * Cada noche, cada agenda recurrente activa aparta el turno que acaba de entrar a su horizonte (62 días), y
+ * termina las que un disparador dejó a medias. Así un cliente nunca alcanza a reservar la hora de un cliente fijo.
+ */
+export const extenderRecurrencias = onSchedule(
+  { schedule: '15 0 * * *', timeZone: 'America/Bogota', timeoutSeconds: 540 },
+  async () => {
+    const activas = await getFirestore().collection('recurrencias').where('activa', '==', true).get();
+    let creadas = 0;
+    let fallidas = 0;
+    for (const doc of activas.docs) {
+      try {
+        creadas += (await programarSerie(getFirestore(), doc.id)).creadas;
+      } catch (error) {
+        fallidas++;
+        logger.error('No se pudo extender la agenda recurrente', { recurrenciaId: doc.id, error: String(error) });
+      }
+    }
+    logger.info('Agendas recurrentes extendidas', { series: activas.size, creadas, fallidas });
   },
 );
 

@@ -12,7 +12,8 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "test:reglas": "firebase emulators:exec --only firestore,storage --project demo-reglas \"node pruebas/reglas.mjs && node pruebas/reglas-storage.mjs\"",
-    "test:funciones": "npm --prefix functions test"
+    "test:funciones": "npm --prefix functions test",
+    "test:recurrentes": "npm --prefix functions run build && firebase emulators:exec --only firestore --project demo-recurrentes \"node --test functions/lib/agenda-recurrente.test.js\""
   },
   "prettier": {
     "printWidth": 100,

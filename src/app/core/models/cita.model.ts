@@ -1,3 +1,5 @@
+import type { Frecuencia } from './recurrencia.model';
+
 export type EstadoCita = 'pendiente' | 'confirmada' | 'completada' | 'cancelada' | 'no-asistio';
 
 /** Estados en los que la cita sigue ocupando el horario del barbero. */
@@ -46,9 +48,16 @@ export interface Cita {
   reemplazaA?: string;
   /** Al reagendar: la cita nueva que reemplazó a esta (queda cancelada). */
   reemplazadaPor?: string;
+  /**
+   * Turno de una agenda recurrente (`recurrencias/{id}`): lo apartó la Cloud Function, no es de ninguna cuenta
+   * y no envía correos. Su ID es `{recurrenciaId}_{AAAAMMDD}`.
+   */
+  recurrenciaId?: string;
+  /** Cada cuánto viene el cliente (para marcarlo en la agenda sin leer la serie). */
+  frecuencia?: Frecuencia;
 }
 
-export type NuevaCita = Omit<Cita, 'id' | 'estado' | 'creadoEn' | 'slotIds' | 'dia' | 'hora' | 'cupoId' | 'reemplazaA' | 'reemplazadaPor' | 'precioFinal'> & {
+export type NuevaCita = Omit<Cita, 'id' | 'estado' | 'creadoEn' | 'slotIds' | 'dia' | 'hora' | 'cupoId' | 'reemplazaA' | 'reemplazadaPor' | 'precioFinal' | 'recurrenciaId' | 'frecuencia'> & {
   dia: string;
   hora: string;
 };

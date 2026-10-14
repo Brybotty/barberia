@@ -469,5 +469,44 @@ service cloud.firestore {
           && !citaSigueActiva(resource.data.citaId))
         || isAdmin();
     }
+
+    // ---------- recurrencias (agendas recurrentes: clientes que vienen cada 1, 2 o 4 semanas) ----------
+    // Solo el admin. El panel guarda el plan; los turnos (citas y bloques) los aparta la Cloud Function
+    // programarRecurrencia con el Admin SDK, que no pasa por estas reglas. La función anota su avance en
+    // generadaHasta, procesadaEn y omitidas: desde el navegador esos campos no se escriben.
+    match /recurrencias/{recurrenciaId} {
+      function recurrenciaValida() {
+        let r = request.resource.data;
+        return r.keys().hasOnly([
+            'clienteNombre', 'clienteTelefono', 'servicioId', 'serviceName', 'precio', 'duracionMinutos', 'barberoId',
+            'barberoNombre', 'frecuencia', 'hora', 'desde', 'activa', 'creadoEn', 'actualizadoEn',
+            'generadaHasta', 'procesadaEn', 'omitidas'])
+          && r.clienteNombre is string && r.clienteNombre.size() > 0 && r.clienteNombre.size() <= 120
+          && r.clienteTelefono is string && r.clienteTelefono.matches('^(3[0-9]{9})?$')
+          && r.servicioId is string && r.servicioId.size() > 0 && r.servicioId.size() <= 60
+          && r.serviceName is string && r.serviceName.size() <= 120
+          && r.precio is number && r.precio >= 0
+          // En bloques de 20 min, de 20 min a 4 horas, y que no pase de la medianoche.
+          && r.duracionMinutos is int && r.duracionMinutos >= 20 && r.duracionMinutos <= 240 && r.duracionMinutos % 20 == 0
+          && r.barberoId is string && r.barberoId.size() > 0 && r.barberoId.size() <= 60
+          && r.barberoNombre is string && r.barberoNombre.size() <= 80
+          && r.frecuencia in ['semanal', 'quincenal', 'mensual']
+          && r.hora is string && r.hora.matches('^([01][0-9]|2[0-3]):(00|20|40)$')
+          && minutosDe(r.hora) + r.duracionMinutos <= 1440
+          && diaValido(r.desde)
+          && r.activa is bool
+          && r.creadoEn is string && r.creadoEn.size() <= 40
+          && r.actualizadoEn is string && r.actualizadoEn.size() <= 40;
+      }
+
+      allow read: if isAdmin();
+      allow create: if isAdmin() && recurrenciaValida()
+        && !request.resource.data.keys().hasAny(['generadaHasta', 'procesadaEn', 'omitidas']);
+      // Cada cambio trae un `actualizadoEn` nuevo: así la función sabe que debe volver a apartar los turnos.
+      allow update: if isAdmin() && recurrenciaValida()
+        && request.resource.data.actualizadoEn != resource.data.actualizadoEn
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['generadaHasta', 'procesadaEn', 'omitidas', 'creadoEn']);
+      allow delete: if isAdmin();
+    }
   }
 }

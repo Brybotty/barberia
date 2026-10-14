@@ -240,9 +240,11 @@ export function correoAgendaBarbero(citas: Cita[], dia: string, barberoId: strin
   const fecha = fechaLarga(inicioDeCita(ordenadas[0])!);
   const cuantas = ordenadas.length === 1 ? '1 cita' : `${ordenadas.length} citas`;
   const nombre = primerNombre(ordenadas[0].barberoNombre);
+  // Los clientes fijos van marcados: es un turno que el barbero ya conoce.
+  const fijo = (cita: Cita) => (cita.recurrenciaId ? ` · recurrente${cita.frecuencia ? ` (${cita.frecuencia})` : ''}` : '');
   const filas: Filas = ordenadas.map(cita => [
     horaDeCita(cita),
-    `${escaparHtml(cita.userName)}<br><span style="font-weight:400;color:${C.suave};">${escaparHtml(cita.serviceName)} · ${escaparHtml(duracion(cita.duracionMinutos))}</span>`,
+    `${escaparHtml(cita.userName)}<br><span style="font-weight:400;color:${C.suave};">${escaparHtml(cita.serviceName)} · ${escaparHtml(duracion(cita.duracionMinutos))}${fijo(cita)}</span>`,
   ]);
   return {
     para: email,
@@ -256,7 +258,7 @@ export function correoAgendaBarbero(citas: Cita[], dia: string, barberoId: strin
       filas,
       botones: botonAgenda(negocio),
     }),
-    texto: [`Tu agenda de mañana (${fecha}): ${cuantas}.`, '', ...ordenadas.map(c => `${horaDeCita(c)}  ${c.userName} · ${c.serviceName}`)].join('\n'),
+    texto: [`Tu agenda de mañana (${fecha}): ${cuantas}.`, '', ...ordenadas.map(c => `${horaDeCita(c)}  ${c.userName} · ${c.serviceName}${fijo(c)}`)].join('\n'),
     clave: `agenda-${barberoId}-${dia}`,
   };
 }

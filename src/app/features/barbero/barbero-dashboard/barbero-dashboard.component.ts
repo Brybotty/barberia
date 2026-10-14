@@ -18,6 +18,7 @@ import { claveDia, compararCitas, diaDeCita, inicioDeCita } from '../../../core/
 import { PERIODOS, Periodo, comisionDe, enPeriodo, rangoDe, resumir, valorCobrado } from '../../../core/utils/ganancias';
 import { enlaceWhatsApp } from '../../../core/utils/colombia';
 import { CompletarCitaComponent } from '../../../shared/components/completar-cita/completar-cita.component';
+import { RecurrenteComponent } from '../../../shared/components/recurrente/recurrente.component';
 
 interface Datos {
   perfil: Usuario | null;
@@ -29,7 +30,7 @@ interface Datos {
 @Component({
   selector: 'app-barbero-dashboard',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink, CompletarCitaComponent, DisponibilidadComponent, RedSocialComponent],
+  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink, CompletarCitaComponent, DisponibilidadComponent, RedSocialComponent, RecurrenteComponent],
   template: `
     <div class="min-h-screen bg-neutral-950 text-white">
       <header class="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/90 backdrop-blur-xl">
@@ -146,6 +147,7 @@ interface Datos {
                         }">{{ etiqueta(cita) }}</span>
                   <p class="text-2xl font-black">{{ cita.horaStr }}</p>
                   <p class="text-neutral-300 font-bold mt-1">{{ cita.userName }}</p>
+                  @if (cita.recurrenciaId) { <app-recurrente class="mt-2" [frecuencia]="cita.frecuencia" /> }
                   <p class="text-sm text-neutral-500 mt-3">{{ cita.serviceName }} · <span class="text-neutral-300">{{ valorCobrado(cita) | currency:'COP':'symbol-narrow':'1.0-0' }}</span></p>
                   @if (cita.phone && esActiva(cita.estado)) {
                     <a [href]="recordatorio(cita)" target="_blank" rel="noopener" class="enlace-toque mt-2 text-xs font-bold text-emerald-300 hover:text-emerald-200">
@@ -179,7 +181,10 @@ interface Datos {
                   </div>
                   <div class="flex-1 min-w-0">
                     <p class="font-bold truncate">{{ cita.horaStr }} · {{ cita.userName }}</p>
-                    <p class="text-sm text-neutral-500 truncate">{{ cita.serviceName }}</p>
+                    <p class="flex min-w-0 items-center gap-2 text-sm text-neutral-500">
+                      <span class="truncate">{{ cita.serviceName }}</span>
+                      @if (cita.recurrenciaId) { <app-recurrente [frecuencia]="cita.frecuencia" [corto]="true" /> }
+                    </p>
                   </div>
                   <span class="hidden sm:inline text-sm font-bold text-neutral-300 shrink-0">{{ cita.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
                   @if (cita.phone) {
@@ -216,7 +221,7 @@ interface Datos {
                     @for (cita of historial(); track cita.id) {
                       <tr>
                         <td class="px-5 py-3 whitespace-nowrap text-neutral-400">{{ inicio(cita) | date:'d MMM' }} · {{ cita.horaStr }}</td>
-                        <td class="px-5 py-3 whitespace-nowrap">{{ cita.userName }}</td>
+                        <td class="px-5 py-3 whitespace-nowrap">{{ cita.userName }} @if (cita.recurrenciaId) { <app-recurrente class="ml-1" [frecuencia]="cita.frecuencia" [corto]="true" /> }</td>
                         <td class="px-5 py-3 text-neutral-400">{{ cita.serviceName }}</td>
                         <td class="px-5 py-3 text-right font-bold whitespace-nowrap">{{ valorCobrado(cita) | currency:'COP':'symbol-narrow':'1.0-0' }}</td>
                       </tr>
@@ -329,8 +334,11 @@ export class BarberoDashboardComponent {
     const cuando = dia === this.diaHoy ? 'hoy' : dia === manana ? 'mañana'
       : `el ${inicioDeCita(cita).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}`;
     const nombre = cita.userName.trim().split(/\s+/)[0] ?? '';
-    return enlaceWhatsApp(cita.phone, `Hola ${nombre}, te recordamos tu cita en ${CLIENTE.nombre} ${cuando} a las ${cita.horaStr} (${cita.serviceName}). ¡Te esperamos! `
-      + `Si no puedes venir, cámbiala o cancélala aquí: ${location.origin}/mis-citas`);
+    // Las citas que agendó el panel (y las recurrentes) no son de ninguna cuenta: "Mis reservas" no las muestra.
+    const siNoPuede = cita.userId
+      ? `Si no puedes venir, cámbiala o cancélala aquí: ${location.origin}/mis-citas`
+      : 'Si no puedes venir, avísanos por aquí.';
+    return enlaceWhatsApp(cita.phone, `Hola ${nombre}, te recordamos tu cita en ${CLIENTE.nombre} ${cuando} a las ${cita.horaStr} (${cita.serviceName}). ¡Te esperamos! ${siNoPuede}`);
   }
 
   inicio(cita: Cita): Date {

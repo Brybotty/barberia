@@ -22,8 +22,10 @@ import { AdminServiciosComponent } from '../admin-servicios/admin-servicios.comp
 import { AdminBarberosComponent } from '../admin-barberos/admin-barberos.component';
 import { AdminAjustesComponent } from '../admin-ajustes/admin-ajustes.component';
 import { AdminRendimientoComponent } from '../admin-rendimiento/admin-rendimiento.component';
+import { AdminRecurrentesComponent } from '../admin-recurrentes/admin-recurrentes.component';
+import { RecurrenteComponent } from '../../../shared/components/recurrente/recurrente.component';
 
-type Tab = 'dashboard' | 'usuarios' | 'barberos' | 'citas' | 'rendimiento' | 'servicios' | 'ajustes';
+type Tab = 'dashboard' | 'usuarios' | 'barberos' | 'citas' | 'recurrentes' | 'rendimiento' | 'servicios' | 'ajustes';
 
 interface Pestana {
   id: Tab;
@@ -37,6 +39,7 @@ interface Pestana {
 const PESTANAS: Pestana[] = [
   { id: 'dashboard', texto: 'Inicio', corto: 'Inicio', icono: 'tablero' },
   { id: 'citas', texto: 'Citas', corto: 'Citas', icono: 'calendario' },
+  { id: 'recurrentes', texto: 'Agendas recurrentes', corto: 'Recurrentes', icono: 'repetir' },
   { id: 'rendimiento', texto: 'Cortes y ganancias', corto: 'Ganancias', icono: 'moneda' },
   { id: 'servicios', texto: 'Servicios y precios', corto: 'Servicios', icono: 'tijeras' },
   { id: 'barberos', texto: 'Equipo', corto: 'Equipo', icono: 'equipo' },
@@ -55,7 +58,7 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
   standalone: true,
   imports: [
     NgClass, CurrencyPipe, RouterLink, IconoComponent, MarcaComponent, AdminCitasComponent, AdminServiciosComponent, AdminBarberosComponent,
-    AdminAjustesComponent, AdminRendimientoComponent,
+    AdminAjustesComponent, AdminRendimientoComponent, AdminRecurrentesComponent, RecurrenteComponent,
   ],
   template: `
     <div class="flex h-[100dvh] overflow-hidden bg-neutral-950 font-sans text-white">
@@ -185,7 +188,10 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
                       <li class="flex items-center gap-4 px-5 py-3.5">
                         <p class="w-20 shrink-0 font-display text-base font-bold text-detalle-200">{{ cita.horaStr }}</p>
                         <div class="min-w-0 flex-1">
-                          <p class="truncate font-bold">{{ cita.userName }}</p>
+                          <p class="flex min-w-0 items-center gap-2">
+                            <span class="truncate font-bold">{{ cita.userName }}</span>
+                            @if (cita.recurrenciaId) { <app-recurrente [frecuencia]="cita.frecuencia" [corto]="true" /> }
+                          </p>
                           <p class="truncate text-sm text-neutral-500">{{ cita.serviceName }} · {{ cita.barberoNombre }}</p>
                         </div>
                         <span class="hidden shrink-0 text-sm font-bold text-neutral-300 sm:inline">{{ cita.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
@@ -239,6 +245,7 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
 
           @if (currentTab() === 'barberos') { <app-admin-barberos /> }
           @if (currentTab() === 'citas') { <app-admin-citas /> }
+          @if (currentTab() === 'recurrentes') { <app-admin-recurrentes /> }
           @if (currentTab() === 'servicios') { <app-admin-servicios /> }
           @if (currentTab() === 'rendimiento') { <app-admin-rendimiento /> }
           @if (currentTab() === 'ajustes') { <app-admin-ajustes /> }

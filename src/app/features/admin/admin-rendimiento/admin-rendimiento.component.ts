@@ -10,6 +10,8 @@ import { BarberosService } from '../../../core/services/barberos.service';
 import { CitasService } from '../../../core/services/citas.service';
 import { compararCitas, inicioDeCita } from '../../../core/utils/horario';
 import { PERIODOS, Periodo, ResumenCortes, comisionDe, enPeriodo, rangoDe, resumir, valorCobrado } from '../../../core/utils/ganancias';
+import { IconoComponent } from '../../../shared/components/icono/icono.component';
+import { RecurrenteComponent } from '../../../shared/components/recurrente/recurrente.component';
 
 interface FilaBarbero {
   barbero: Barbero;
@@ -23,7 +25,7 @@ interface FilaBarbero {
 @Component({
   selector: 'app-admin-rendimiento',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink],
+  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink, IconoComponent, RecurrenteComponent],
   template: `
     <div class="animate-in fade-in duration-500">
       <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
@@ -66,6 +68,24 @@ interface FilaBarbero {
         </div>
       </div>
 
+      <!-- Clientes fijos: lo que dejan sus turnos y cuántas veces faltaron -->
+      @if (recurrentes(); as r) {
+        <div class="tarjeta mb-8 flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-detalle-400/40 text-detalle-200">
+            <app-icono nombre="repetir" class="h-5 w-5" [grosor]="1.8" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="font-black text-white">Agendas recurrentes</p>
+            <p class="text-sm text-neutral-400">Turnos de clientes fijos en este período.</p>
+          </div>
+          <dl class="grid grid-cols-3 gap-4 text-center sm:text-right">
+            <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Hechos</dt><dd class="text-lg font-black text-white">{{ r.cortes }}</dd></div>
+            <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Generado</dt><dd class="text-lg font-black tabular-nums text-white">{{ r.generado | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+            <div><dt class="text-[11px] font-bold uppercase text-neutral-500">No vinieron</dt><dd class="text-lg font-black" [ngClass]="r.noAsistio ? 'text-red-300' : 'text-white'">{{ r.noAsistio }}</dd></div>
+          </dl>
+        </div>
+      }
+
       @if (filas().length === 0) {
         <div class="tarjeta border-dashed px-6 py-14 text-center text-neutral-500">Aún no hay barberos registrados en Staff &amp; Barberos.</div>
       } @else {
@@ -104,7 +124,7 @@ interface FilaBarbero {
                           @for (c of f.cortes; track c.id) {
                             <tr>
                               <td class="px-5 py-3 whitespace-nowrap text-neutral-400">{{ inicio(c) | date:'d MMM' }} · {{ c.horaStr }}</td>
-                              <td class="px-5 py-3 whitespace-nowrap text-white">{{ c.userName }}</td>
+                              <td class="px-5 py-3 whitespace-nowrap text-white">{{ c.userName }} @if (c.recurrenciaId) { <app-recurrente class="ml-1" [frecuencia]="c.frecuencia" [corto]="true" /> }</td>
                               <td class="px-5 py-3 text-neutral-400">{{ c.serviceName }}</td>
                               <td class="px-5 py-3 text-right font-bold text-white whitespace-nowrap">
                                 {{ valorCobrado(c) | currency:'COP':'symbol-narrow':'1.0-0' }}
@@ -163,6 +183,13 @@ export class AdminRendimientoComponent {
   });
 
   readonly tuFila = computed(() => this.filas().find(f => f.esTuyo) ?? null);
+
+  /** Los turnos de las agendas recurrentes del período (null si no hay ninguno). */
+  readonly recurrentes = computed(() => {
+    const rango = rangoDe(this.periodo());
+    const fijas = this.citas().filter(c => c.recurrenciaId && enPeriodo(c, rango));
+    return fijas.length ? resumir(fijas) : null;
+  });
 
   readonly total = computed(() =>
     this.filas().reduce(

@@ -23,6 +23,7 @@ const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 import { CompletarCitaComponent } from '../../../shared/components/completar-cita/completar-cita.component';
 import { IconoComponent } from '../../../shared/components/icono/icono.component';
 import { RedSocialComponent } from '../../../shared/components/red-social/red-social.component';
+import { RecurrenteComponent } from '../../../shared/components/recurrente/recurrente.component';
 
 interface DiaCalendario {
   fecha: Date;
@@ -37,7 +38,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 @Component({
   selector: 'app-admin-citas',
   standalone: true,
-  imports: [DatePipe, NgClass, FormsModule, CompletarCitaComponent, IconoComponent, RedSocialComponent],
+  imports: [DatePipe, NgClass, FormsModule, CompletarCitaComponent, IconoComponent, RedSocialComponent, RecurrenteComponent],
   template: `
     <div class="animate-in fade-in duration-500">
       <div class="mb-8 flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-end">
@@ -118,6 +119,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                         <p class="font-display text-lg font-bold text-detalle-200">{{ cita.horaStr }}</p>
                         <p class="truncate font-bold">{{ cita.userName || 'Cliente' }}</p>
                         <p class="truncate text-sm text-neutral-500">{{ cita.serviceName || 'Sin servicio' }} · {{ cita.barberoNombre || 'Cualquiera' }}</p>
+                        @if (cita.recurrenciaId) { <app-recurrente class="mt-2" [frecuencia]="cita.frecuencia" /> }
                       </div>
                       <span [class]="claseEstado(cita)">{{ etiqueta(cita) }}</span>
                     </div>
@@ -156,6 +158,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   <p class="text-xs font-bold uppercase tracking-widest text-detalle-300">{{ cita.fecha | date:'EEE d MMM' }} · {{ cita.horaStr }}</p>
                   <p class="mt-1 truncate font-bold">{{ cita.userName }}</p>
                   <p class="truncate text-sm text-neutral-500">{{ cita.serviceName }} · {{ cita.barberoNombre || 'Cualquiera' }}</p>
+                  @if (cita.recurrenciaId) { <app-recurrente class="mt-2" [frecuencia]="cita.frecuencia" /> }
                 </div>
                 <span [class]="claseEstado(cita)">{{ etiqueta(cita) }}</span>
               </div>
@@ -189,7 +192,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                       <p class="text-xs font-bold text-detalle-300">{{ cita.horaStr }}</p>
                     </td>
                     <td>
-                      <p class="font-bold">{{ cita.userName }}</p>
+                      <p class="flex items-center gap-2 font-bold">{{ cita.userName }} @if (cita.recurrenciaId) { <app-recurrente [frecuencia]="cita.frecuencia" [corto]="true" /> }</p>
                       <p class="text-xs text-neutral-500">{{ cita.phone ? telefono(cita.phone) : 'Sin celular' }}</p>
                     </td>
                     <td class="text-neutral-300">{{ cita.serviceName || 'Sin servicio' }}</td>
@@ -246,7 +249,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                 </select>
               </label>
             </div>
-            <p class="ayuda">Si cambias el día o la hora, al cliente y al barbero les llega el aviso por correo.</p>
+            @if (citaEditando.recurrenciaId) {
+              <p class="ayuda">Es un turno de una agenda recurrente: solo cambia este día y no se envían correos. Para cambiar todos sus turnos, edita la agenda en Recurrentes.</p>
+            } @else {
+              <p class="ayuda">Si cambias el día o la hora, al cliente y al barbero les llega el aviso por correo.</p>
+            }
           </div>
           <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button type="button" (click)="cerrarModal()" class="boton-linea">Cancelar</button>
@@ -489,12 +496,19 @@ export class AdminCitasComponent {
   }
 
   async eliminarCita(cita: Cita) {
-    const seguro = await this.confirmar.preguntar({
-      titulo: '¿Eliminar esta cita?',
-      texto: `${cita.userName}, ${cita.horaStr}. Se borra del todo y no cuenta en cortes ni ganancias. Si el cliente canceló, es mejor dejarla como cancelada.`,
-      aceptar: 'Sí, eliminar',
-      peligro: true,
-    });
+    const seguro = await this.confirmar.preguntar(cita.recurrenciaId
+      ? {
+          titulo: '¿Quitar este turno recurrente?',
+          texto: `${cita.userName}, ${cita.horaStr}. Solo se quita este día (la hora queda libre); la agenda recurrente sigue con los demás. Si el cliente no vino, es mejor marcar "No asistió".`,
+          aceptar: 'Sí, quitarlo',
+          peligro: true,
+        }
+      : {
+          titulo: '¿Eliminar esta cita?',
+          texto: `${cita.userName}, ${cita.horaStr}. Se borra del todo y no cuenta en cortes ni ganancias. Si el cliente canceló, es mejor dejarla como cancelada.`,
+          aceptar: 'Sí, eliminar',
+          peligro: true,
+        });
     if (!seguro) return;
     try {
       await this.citasService.eliminar(cita);

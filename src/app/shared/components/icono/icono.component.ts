@@ -39,6 +39,7 @@ const TRAZOS: Record<string, string> = {
   check: 'M5 13l4 4L19 7',
   cerrar: 'M6 18 18 6M6 6l12 12',
   mas: 'M12 5v14m7-7H5',
+  menos: 'M5 12h14',
   editar: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 1 1 3.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
   papelera: 'M19 7l-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16',
   candado: 'M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z',
@@ -57,6 +58,9 @@ const TRAZOS: Record<string, string> = {
   birrete: 'M12 14l9-5-9-5-9 5 9 5zm0 0 6.16-3.422A12.083 12.083 0 0 1 21 17.5c-2.998 0-5.74 1.1-7.843 2.918L12 21.5l-1.157-1.082A11.952 11.952 0 0 0 3 17.5c0-2.46.74-4.75 2.01-6.656L12 14z',
   correo: 'M3 8l7.89 5.26a2 2 0 0 0 2.22 0L21 8M5 19h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z',
   pausa: 'M10 9v6m4-6v6m7-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z',
+  buscar: 'm21 21-4.35-4.35M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14z',
+  // Persona sin agregar ("continuar sin cliente")
+  sinUsuario: 'M15 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM3.5 21a7.5 7.5 0 0 1 11.2-6.5M16.5 16.5l4 4m0-4-4 4',
   // Instalar la app: compartir (el botón de iPhone), agregar a inicio y descargar
   compartir: 'M12 15V3m0 0L8 7m4-4 4 4M6 11H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1',
   agregar: 'M12 9v6m3-3H9M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',

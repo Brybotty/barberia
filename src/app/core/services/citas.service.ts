@@ -2,7 +2,7 @@ import { Injectable, NgZone, inject } from '@angular/core';
 import {
   Firestore, WriteBatch, collection, doc, getDocs, query, updateDoc, where, writeBatch,
 } from '@angular/fire/firestore';
-import { Observable, map, shareReplay } from 'rxjs';
+import { Observable, map, of, shareReplay } from 'rxjs';
 import { CUPOS_POR_DIA, Cita, EstadoCita, NuevaCita, RESERVAS_POR_DIA, esActiva } from '../models/cita.model';
 import { escuchar } from '../utils/firestore';
 import {
@@ -68,6 +68,15 @@ export class CitasService {
     return escuchar<Slot>(this.zone, query(this.slotsRef, where('dia', '==', dia))).pipe(
       map(slots => new Set(slots.map(s => s.id))),
     );
+  }
+
+  /**
+   * Bloques ocupados de varios días a la vez (hasta 30): los turnos que tendrá una agenda recurrente.
+   * Como `slotsOcupados`, sin datos de clientes; quien los pide filtra los del barbero.
+   */
+  slotsDeDias(dias: string[]): Observable<Slot[]> {
+    if (dias.length === 0) return of([]);
+    return escuchar<Slot>(this.zone, query(this.slotsRef, where('dia', 'in', dias.slice(0, 30))));
   }
 
   /** Bloqueos de agenda de hoy en adelante (de todos los barberos; quien los pide filtra los suyos). */
