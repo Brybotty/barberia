@@ -181,7 +181,7 @@ export function correoCanceladaBarbero(cita: Cita, citaId: string, negocio: Nego
 }
 
 // ---------------------------------------------------------------------------
-// Cambio de horario (el admin la movió)
+// Cambio de horario (el admin la movió o el cliente la reagendó)
 // ---------------------------------------------------------------------------
 
 export function correoReprogramadaCliente(antes: Cita, cita: Cita, citaId: string, negocio: Negocio): Correo {
@@ -227,6 +227,37 @@ export function correoReprogramadaBarbero(antes: Cita, cita: Cita, citaId: strin
     texto: [`La cita de ${cita.userName} cambió de horario (antes: ${anterior}).`, '', textoFilas(filas)].join('\n'),
     responderA: responderAlCliente(cita),
     clave: `cita-${citaId}-cambio-${cita.dia}-${cita.hora}-barbero`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Agenda de mañana (un solo correo al barbero, la tarde anterior)
+// ---------------------------------------------------------------------------
+
+export function correoAgendaBarbero(citas: Cita[], dia: string, barberoId: string, negocio: Negocio, email: string): Correo {
+  const ordenadas = [...citas].sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? ''));
+  const horaDeCita = (cita: Cita) => horaDe(cita, inicioDeCita(cita)!);
+  const fecha = fechaLarga(inicioDeCita(ordenadas[0])!);
+  const cuantas = ordenadas.length === 1 ? '1 cita' : `${ordenadas.length} citas`;
+  const nombre = primerNombre(ordenadas[0].barberoNombre);
+  const filas: Filas = ordenadas.map(cita => [
+    horaDeCita(cita),
+    `${escaparHtml(cita.userName)}<br><span style="font-weight:400;color:${C.suave};">${escaparHtml(cita.serviceName)} · ${escaparHtml(duracion(cita.duracionMinutos))}</span>`,
+  ]);
+  return {
+    para: email,
+    asunto: `Tu agenda de mañana: ${cuantas}`,
+    html: marco({
+      negocio,
+      resumen: `${fecha}: ${cuantas}. La primera, a las ${horaDeCita(ordenadas[0])}.`,
+      etiqueta: 'Agenda de mañana',
+      titulo: nombre ? `${nombre}, mañana tienes ${cuantas}` : `Mañana tienes ${cuantas}`,
+      intro: `${escaparHtml(fecha)}. En tu panel puedes recordarle la cita a cada cliente por WhatsApp con un toque.`,
+      filas,
+      botones: botonAgenda(negocio),
+    }),
+    texto: [`Tu agenda de mañana (${fecha}): ${cuantas}.`, '', ...ordenadas.map(c => `${horaDeCita(c)}  ${c.userName} · ${c.serviceName}`)].join('\n'),
+    clave: `agenda-${barberoId}-${dia}`,
   };
 }
 

@@ -7,18 +7,18 @@ export type Paleta = Record<50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 |
 /** Color de detalle (toques sutiles: etiquetas, líneas, insignias). Mismo formato RGB que Paleta. */
 export type PaletaDetalle = Record<200 | 300 | 400 | 500 | 600, string>;
 
+/**
+ * Equipo inicial. El admin lo carga en Firestore desde "Staff & Barberos" cuando la colección está vacía;
+ * desde ahí en adelante la página muestra lo que haya en Firestore (una sola fuente).
+ */
 export interface MiembroEquipo {
   nombre: string;
   apodo?: string;
   rol: string;
   /** Usuario de Instagram, sin '@'. */
   instagram?: string;
-  /** Ruta en /public. */
+  /** Ruta en /public (retrato vertical 4:5). */
   foto?: string;
-  /** Punto de la foto que se mantiene a la vista (CSS object-position / transform-origin), p. ej. '40% center'. */
-  fotoPosicion?: string;
-  /** Acercamiento de la foto (1 = sin zoom), útil si la persona sale pequeña. */
-  fotoZoom?: number;
 }
 
 export interface Resena {
@@ -29,11 +29,18 @@ export interface Resena {
 }
 
 export interface HorarioAtencion {
-  /** Minutos desde medianoche (10:00 -> 600). */
+  /** Minutos desde medianoche (9:20 -> 560). Siempre múltiplos de 20: es el bloque de la agenda. */
   apertura: number;
   cierre: number;
+  /**
+   * Días que abren a otra hora (0 = domingo ... 6 = sábado): { 5: 540, 6: 540 } abre a las 9:00 viernes y sábado.
+   * Los turnos de cada día se cuentan desde su hora de apertura.
+   */
+  aperturas?: Record<number, number>;
   /** 0 = domingo ... 6 = sábado. */
   diasCerrados: number[];
+  /** Fechas en que no se abre ('YYYY-MM-DD'): festivos, vacaciones. Las agrega el admin en Ajustes. */
+  cierres?: string[];
 }
 
 /** Todo lo que cambia de una barbería a otra. */
@@ -44,8 +51,14 @@ export interface ConfigCliente {
   marca: { texto: string; destacado: string };
   /** Ruta en /public. Si no hay, se muestra solo el nombre. */
   logo?: string;
+  /** Símbolo de la marca sin el nombre (PNG transparente en /public): marca de agua en paneles y avisos. */
+  simbolo?: string;
   favicon: string;
   descripcion: string;
+  /** Foto del local (ruta en /public) para la pantalla de ingreso. */
+  fotoLocal?: string;
+  /** Quién hizo la página: se muestra discreto en el pie. */
+  firma?: { texto: string; url?: string };
   hero: {
     imagen: string;
     titulo: string;

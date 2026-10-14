@@ -2,9 +2,10 @@
  * Cloud Functions de la barbería: correos de citas por medio de Resend (https://resend.com).
  *
  * - avisarCitaNueva (al crearse una cita): confirmación al cliente (con la cita para su calendario)
- *   y aviso al barbero.
+ *   y aviso al barbero. Si la cita reemplaza a otra (el cliente la reagendó), avisa del cambio de horario.
  * - avisarCambioDeCita (al actualizarse): si se cancela o cambia de día/hora, avisa a los dos.
- * - recordarCitas (todos los días a las 6:00 p. m., hora de Colombia): recordatorio a quien tiene cita mañana.
+ * - recordarCitas (todos los días a las 6:00 p. m., hora de Colombia): recordatorio a quien tiene cita mañana
+ *   y, a cada barbero con citas, su agenda del día siguiente en un solo correo.
  *
  * Solo se avisa de citas que aún no pasan. Si un correo falla, la cita no se afecta: queda en el log.
  *
@@ -18,9 +19,9 @@ import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/fire
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
-import { Cita, Correo, Negocio, debeAvisar, emailValido, mananaEnColombia, necesitaRecordatorio, tipoDeCambio } from './correo';
+import { Cita, Correo, Negocio, debeAvisar, emailValido, esReemplazoDe, mananaEnColombia, necesitaRecordatorio, tipoDeCambio } from './correo';
 import {
-  correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio,
+  correoAgendaBarbero, correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio,
   correoReprogramadaBarbero, correoReprogramadaCliente,
 } from './mensajes';
 
@@ -52,6 +53,25 @@ export const avisarCitaNueva = onDocumentCreated({ document: 'citas/{citaId}', s
 
   const negocio = datosDelNegocio();
   const emailBarbero = await emailDelBarbero(cita.barberoId);
+
+  // El cliente reagendó: esta cita reemplaza a otra suya. Un solo aviso de "cambió de horario".
+  const anterior = cita.reemplazaA
+    ? (await getFirestore().doc(`citas/${cita.reemplazaA}`).get()).data() as Cita | undefined
+    : undefined;
+  if (esReemplazoDe(cita, anterior)) {
+    const mismoBarbero = anterior.barberoId === cita.barberoId;
+    const emailAnterior = mismoBarbero ? null : await emailDelBarbero(anterior.barberoId);
+    await enviarTodos(citaId, 'reagendada', [
+      emailValido(cita.userEmail) && ['cliente', correoReprogramadaCliente(anterior, cita, citaId, negocio)],
+      emailBarbero && ['barbero', mismoBarbero
+        ? correoReprogramadaBarbero(anterior, cita, citaId, negocio, emailBarbero)
+        : correoBarbero(cita, citaId, negocio, emailBarbero)],
+      // Si cambió de barbero, al anterior se le avisa que su turno quedó libre.
+      emailAnterior && ['barbero', correoCanceladaBarbero(anterior, cita.reemplazaA!, negocio, emailAnterior)],
+    ]);
+    return;
+  }
+
   await enviarTodos(citaId, 'nueva', [
     emailValido(cita.userEmail) && ['cliente', correoCliente(cita, citaId, negocio)],
     emailBarbero && ['barbero', correoBarbero(cita, citaId, negocio, emailBarbero)],
@@ -94,7 +114,22 @@ export const recordarCitas = onSchedule(
       await enviarTodos(doc.id, 'recordatorio', [['cliente', correoRecordatorio(cita, doc.id, negocio)]]);
       enviados++;
     }
-    logger.info('Recordatorios del día', { dia, citas: citas.size, enviados });
+
+    // La agenda de mañana de cada barbero, en un solo correo (solo si tiene citas).
+    const porBarbero = new Map<string, Cita[]>();
+    for (const doc of citas.docs) {
+      const cita = doc.data() as Cita;
+      if (!debeAvisar(cita) || !cita.barberoId || cita.barberoId === BARBERO_CUALQUIERA) continue;
+      porBarbero.set(cita.barberoId, [...(porBarbero.get(cita.barberoId) ?? []), cita]);
+    }
+    let agendas = 0;
+    for (const [barberoId, lista] of porBarbero) {
+      const email = await emailDelBarbero(barberoId);
+      if (!email) continue;
+      await enviarTodos(`agenda-${barberoId}`, 'agenda', [['barbero', correoAgendaBarbero(lista, dia, barberoId, negocio, email)]]);
+      agendas++;
+    }
+    logger.info('Recordatorios del día', { dia, citas: citas.size, enviados, agendas });
   },
 );
 

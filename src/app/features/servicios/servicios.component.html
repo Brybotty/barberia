@@ -1,65 +1,58 @@
-<div class="min-h-screen bg-neutral-950 py-16 px-4 sm:px-6 lg:px-8">
-  <div class="max-w-5xl mx-auto">
-    
-    <!-- Encabezado del Catálogo -->
-    <div class="text-center mb-20">
-      <h1 class="font-display text-4xl md:text-6xl font-black text-white tracking-tight mb-6">NUESTRO <span class="text-acento-500">MENÚ</span></h1>
-      <p class="text-lg md:text-xl text-neutral-400 font-medium max-w-2xl mx-auto">Selecciona tu experiencia. Todos nuestros servicios incluyen diagnóstico técnico y asesoría de imagen personalizada.</p>
-    </div>
+<div class="relative min-h-screen overflow-hidden bg-neutral-950 px-4 py-14 sm:px-6 md:py-20 lg:px-8">
+  <div class="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_at_top,rgb(var(--detalle-500)/0.07),transparent_70%)]"></div>
 
-    <!-- Iteración de Categorías -->
-    <div class="space-y-20">
-      @for (cat of categorias; track cat.nombre) {
-        <section>
-          
-          <!-- Título de Categoría -->
-          <div class="flex items-center gap-4 mb-8">
-            <div class="bg-acento-500/10 text-acento-500 p-3 rounded-2xl border border-acento-500/20">
-              <app-icono [nombre]="cat.icono" class="h-8 w-8" />
-            </div>
-            <h2 class="text-3xl font-black text-white tracking-tight">{{ cat.nombre }}</h2>
+  <div class="relative mx-auto max-w-5xl">
+
+    <header class="mb-16 text-center">
+      <p class="rotulo rotulo-centro mb-4">{{ cliente.nombre }}</p>
+      <h1 class="font-display text-4xl font-black tracking-tight text-white md:text-6xl">Nuestro menú</h1>
+      <p class="mx-auto mt-5 max-w-2xl text-lg text-neutral-400">Elige tu servicio y resérvalo en línea. Todos incluyen asesoría personalizada.</p>
+    </header>
+
+    @if (categorias.length === 0) {
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        @for (i of [1, 2, 3, 4]; track i) { <div class="vidrio h-52 animate-pulse rounded-3xl"></div> }
+      </div>
+    }
+
+    <div class="space-y-16">
+      @for (cat of categorias; track cat.nombre; let n = $index) {
+        <section [attr.aria-labelledby]="'categoria-' + n">
+
+          <!-- Categoría: número romano, como un capítulo -->
+          <div class="mb-7 flex items-center gap-4">
+            <span class="font-display text-2xl font-bold text-detalle-300" aria-hidden="true">{{ romano(n + 1) }}</span>
+            <h2 [id]="'categoria-' + n" class="font-display text-2xl font-black tracking-tight text-white md:text-3xl">{{ cat.nombre }}</h2>
+            <span class="h-px flex-1 bg-gradient-to-r from-detalle-400/50 to-transparent"></span>
+            <app-icono [nombre]="cat.icono" class="h-6 w-6 text-neutral-600" />
           </div>
 
-          <!-- Cuadrícula de Servicios -->
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             @for (servicio of cat.servicios; track servicio.id) {
-              
-              <!-- Tarjeta de Servicio Oscura -->
-              <div appRevelar class="vidrio rounded-3xl p-6 md:p-8 hover:border-acento-500/30 transition-all duration-300 group relative overflow-hidden flex flex-col justify-between">
-                
-                <!-- Borde indicador de destacado -->
-                @if (servicio.destacado) {
-                  <div class="absolute right-0 top-0 w-24 h-24 bg-acento-500/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-150 duration-500"></div>
-                  <div class="absolute right-4 top-4">
-                    <span class="bg-detalle-500/15 text-detalle-300 border border-detalle-400/40 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full">Popular</span>
-                  </div>
-                }
-
+              <article appRevelar class="vidrio group relative flex flex-col justify-between overflow-hidden rounded-3xl p-6 transition-all duration-300 hover:border-detalle-400/40 md:p-8">
                 <div>
-                  <h3 class="font-black text-white text-xl md:text-2xl tracking-tight mb-3 pr-16">{{ servicio.nombre }}</h3>
-                  
-                  <p class="text-neutral-400 font-medium leading-relaxed mb-6">
-                    {{ servicio.descripcion }}
-                  </p>
-                </div>
-
-                <div class="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-6 border-t border-neutral-800 pt-6 mt-auto">
-                  
-                  <div class="flex flex-col gap-1">
-                    <span class="text-sm font-bold text-neutral-500 uppercase tracking-wider">{{ servicio.precioDesde ? 'Desde' : 'Inversión' }}</span>
-                    <span class="text-3xl font-black text-white">{{ servicio.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
-                    <div class="flex items-center gap-1.5 text-xs font-bold text-neutral-400 mt-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      {{ servicio.duracionMinutos | duracion }}
-                    </div>
+                  <div class="mb-3 flex items-start justify-between gap-4">
+                    <h3 class="text-xl font-black tracking-tight text-white md:text-2xl">{{ servicio.nombre }}</h3>
+                    @if (servicio.destacado) { <span class="chip-oro shrink-0">Popular</span> }
                   </div>
-
-                  <button (click)="agendarServicio(servicio)" class="w-full sm:w-auto bg-acento-600 hover:bg-acento-500 text-sobre-acento font-black py-4 px-8 rounded-full transition-all duration-300 hover:shadow-lg hover:shadow-acento-500/30 hover:-translate-y-1 active:scale-95 whitespace-nowrap">
-                    Agendar Ahora
-                  </button>
-                  
+                  <p class="mb-6 leading-relaxed text-neutral-400">{{ servicio.descripcion }}</p>
                 </div>
-              </div>
+
+                <div class="mt-auto flex flex-col items-start justify-between gap-5 border-t border-white/10 pt-6 sm:flex-row sm:items-end">
+                  <div>
+                    <p class="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">{{ servicio.precioDesde ? 'Desde' : 'Precio' }}</p>
+                    <p class="font-display text-3xl font-black text-white">{{ servicio.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+                    <p class="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-neutral-400">
+                      <app-icono nombre="reloj" class="h-4 w-4" [grosor]="2" />
+                      {{ servicio.duracionMinutos | duracion }}
+                    </p>
+                  </div>
+                  <button type="button" (click)="agendarServicio(servicio)" class="boton-acento w-full whitespace-nowrap !px-8 !py-3.5 sm:w-auto">
+                    Reservar
+                    <app-icono nombre="flecha" class="h-4 w-4" [grosor]="2.2" />
+                  </button>
+                </div>
+              </article>
             }
           </div>
         </section>

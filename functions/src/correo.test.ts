@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Cita, Negocio, archivoIcs, debeAvisar, emailValido, escaparHtml, fechaLarga, inicioDeCita, mananaEnColombia, necesitaRecordatorio,
+  Cita, Negocio, archivoIcs, debeAvisar, emailValido, escaparHtml, esReemplazoDe, fechaLarga, inicioDeCita, mananaEnColombia, necesitaRecordatorio,
   tipoDeCambio,
 } from './correo';
 import {
-  correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio, correoReprogramadaBarbero,
+  correoAgendaBarbero, correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio, correoReprogramadaBarbero,
   correoReprogramadaCliente,
 } from './mensajes';
 
@@ -130,6 +130,39 @@ test('correos de cancelación, cambio y recordatorio', () => {
   const recordatorio = correoRecordatorio(cita(), 'c1', negocio);
   assert.equal(recordatorio.asunto, 'Recordatorio: mañana a las 2:30 PM en El Acicale');
   assert.ok(recordatorio.html.includes('Mateo, tu cita es mañana'));
+});
+
+test('reagendar: la cita anterior no avisa de cancelación; avisa la nueva', () => {
+  const antes = new Date('2026-10-05T12:00:00Z');
+  // El cliente la reagendó: queda cancelada y anota cuál la reemplaza.
+  assert.equal(tipoDeCambio(cita(), cita({ estado: 'cancelada', reemplazadaPor: 'c2' }), antes), null);
+  // Una cancelación normal sí avisa.
+  assert.equal(tipoDeCambio(cita(), cita({ estado: 'cancelada' }), antes), 'cancelada');
+});
+
+test('solo cuenta como reemplazo una cita anterior de la misma cuenta', () => {
+  const nueva = cita({ userId: 'u1', reemplazaA: 'c1' });
+  assert.equal(esReemplazoDe(nueva, cita({ userId: 'u1' })), true);
+  // Apuntar a la cita de otra persona no muestra sus datos: se trata como una reserva nueva.
+  assert.equal(esReemplazoDe(nueva, cita({ userId: 'u2' })), false);
+  assert.equal(esReemplazoDe(nueva, undefined), false);
+  assert.equal(esReemplazoDe(cita({ reemplazaA: 'c1' }), cita({})), false);
+});
+
+test('agenda de mañana del barbero: un solo correo, en orden y sin HTML ajeno', () => {
+  const citas = [
+    cita({ hora: '16:00', horaStr: '4:00 PM', userName: 'Samuel Ospina' }),
+    cita({ hora: '10:30', horaStr: '10:30 AM', userName: '<b>Mateo</b>' }),
+  ];
+  const correo = correoAgendaBarbero(citas, '2026-10-06', 'Trip', negocio, 'trip@correo.com');
+  assert.equal(correo.para, 'trip@correo.com');
+  assert.equal(correo.asunto, 'Tu agenda de mañana: 2 citas');
+  assert.equal(correo.clave, 'agenda-Trip-2026-10-06');
+  assert.ok(correo.html.includes('Juan, mañana tienes 2 citas'));
+  assert.ok(correo.html.indexOf('10:30 AM') < correo.html.indexOf('4:00 PM'));
+  assert.ok(!correo.html.includes('<b>Mateo</b>'));
+  assert.ok(correo.html.includes('https://elacicale.com/barbero'));
+  assert.equal(correoAgendaBarbero([citas[0]], '2026-10-06', 'Trip', negocio, 't@x.co').asunto, 'Tu agenda de mañana: 1 cita');
 });
 
 test('el texto plano no muestra entidades HTML', () => {

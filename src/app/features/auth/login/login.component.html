@@ -1,67 +1,70 @@
-<div class="min-h-screen flex flex-col md:flex-row bg-neutral-950">
-  
-  <!-- Mitad Izquierda (Imagen Premium) -->
-  <div class="md:w-[45%] lg:w-1/2 relative hidden md:block">
-    <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent z-10"></div>
-    <img src="https://images.unsplash.com/photo-1599351431202-1e0f0137899a?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80" [alt]="'Experiencia ' + cliente.nombre" class="absolute inset-0 w-full h-full object-cover">
-    
-    <!-- Caja de texto Glassmorphism -->
-    <div class="absolute inset-0 z-20 flex flex-col justify-end p-12 lg:p-20 pb-20">
-      <div class="bg-black/20 backdrop-blur-xl p-10 rounded-[2.5rem] border border-white/10 shadow-2xl drop-shadow-[0_15px_25px_rgba(0,0,0,0.5)] transform transition-all duration-500 hover:scale-[1.02]">
-        <h1 class="text-4xl lg:text-5xl text-white mb-5"><app-marca claseLogo="w-16 h-16" /></h1>
-        <p class="text-lg text-slate-200 font-medium leading-relaxed">
-          Únete a nuestro club exclusivo. Gestiona tus citas, descubre nuevos estilos y disfruta de una experiencia verdaderamente premium de principio a fin.
-        </p>
+<div class="min-h-[100dvh] flex flex-col md:flex-row bg-neutral-950">
+
+  <!-- Mitad izquierda: el local (foto real), con el símbolo y el lema -->
+  <div class="relative hidden overflow-hidden md:block md:w-[45%] lg:w-1/2">
+    @if (cliente.fotoLocal) {
+      <img [src]="cliente.fotoLocal" alt="El local de {{ cliente.nombre }}" class="absolute inset-0 h-full w-full object-cover object-center animar-zoom-lento">
+    }
+    <div class="absolute inset-0 bg-gradient-to-t from-black via-black/25 to-black/30"></div>
+    <div class="absolute inset-y-0 right-0 w-1/4 bg-gradient-to-r from-transparent to-neutral-950"></div>
+
+    <div class="absolute inset-0 flex flex-col justify-between p-10 lg:p-14">
+      <a routerLink="/" class="text-2xl text-white transition-opacity hover:opacity-80"><app-marca claseLogo="w-12 h-12" /></a>
+      <div class="max-w-md">
+        <p class="rotulo mb-4">{{ cliente.ubicacion?.zona }}</p>
+        <p class="font-display text-3xl font-black leading-tight text-white lg:text-4xl">{{ cliente.hero.lema || cliente.hero.subtitulo }}</p>
+        <p class="mt-4 text-sm leading-relaxed text-neutral-300">Con tu cuenta reservas en un minuto, cambias la hora si te surge algo y guardas tus citas en un solo lugar.</p>
       </div>
     </div>
   </div>
 
-  <!-- Mitad Derecha (Formulario Login) -->
-  <div class="w-full md:w-[55%] lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
-    
-    <!-- Botón Volver -->
-    <a href="/" class="absolute top-6 left-6 md:top-10 md:left-10 flex items-center gap-2 text-neutral-500 hover:text-white font-extrabold text-sm transition-all duration-300 hover:-translate-x-1">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-      Volver al inicio
+  <!-- Mitad derecha: ingreso -->
+  <div class="relative flex w-full items-center justify-center px-5 pb-10 pt-20 sm:px-12 md:w-[55%] md:py-12 lg:w-1/2">
+
+    <a routerLink="/" class="enlace-toque absolute left-5 top-5 text-sm font-bold text-neutral-400 transition-colors hover:text-white md:left-10 md:top-10">
+      <app-icono nombre="atras" class="h-4 w-4" [grosor]="2.2" /> Volver al inicio
     </a>
 
-    <!-- Contenedor Principal del Login -->
     <div class="w-full max-w-md">
-      
-      <!-- Logo solo visible en Móvil -->
-      <div class="md:hidden text-center mb-12 pt-12">
-        <h1 class="text-3xl text-white"><app-marca claseLogo="w-14 h-14" /></h1>
+
+      <!-- Marca (solo en celular: en escritorio va sobre la foto) -->
+      <div class="mb-8 text-center md:hidden">
+        @if (cliente.simbolo) { <img [src]="cliente.simbolo" alt="" class="mx-auto mb-3 h-16 w-auto"> }
+        <p class="font-display text-xl font-bold tracking-[0.12em] text-white">{{ cliente.marca.texto }}</p>
       </div>
 
-      <!-- Títulos -->
-      <div class="text-center mb-10">
-        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-acento-500/10 text-acento-500 mb-6 border border-acento-500/20 shadow-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-        </div>
-        <h2 class="font-display text-3xl lg:text-4xl font-black text-white mb-3 tracking-tight">Acceso Exclusivo</h2>
-        <p class="text-neutral-400 font-medium text-base">Entra con Google, tu correo o tu celular para agendar tu próxima visita.</p>
+      <div class="mb-8 text-center md:text-left">
+        <p class="rotulo mb-3">Tu cuenta</p>
+        <h1 class="font-display text-3xl font-black tracking-tight text-white lg:text-4xl">Entra para reservar</h1>
+        <p class="mt-2 text-neutral-400">Con Google, tu correo o tu celular. Si es tu primera vez, la cuenta se crea sola.</p>
       </div>
 
       <!-- Google -->
-      <button (click)="login()" class="w-full bg-white border-2 border-slate-200 text-slate-700 font-extrabold py-4 px-6 rounded-[1.25rem] flex items-center justify-center gap-4 hover:bg-neutral-100 hover:shadow-lg hover:shadow-white/10 transition-all duration-300 active:scale-95 group">
-        <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="w-6 h-6 transition-transform duration-300 group-hover:scale-110" alt="Google">
-        <span class="text-[15px] tracking-wide">Continuar con Google</span>
+      <button type="button" (click)="login()" class="group flex w-full items-center justify-center gap-3 rounded-2xl bg-white px-6 py-3.5 font-extrabold text-neutral-900 transition-all hover:bg-neutral-100 active:scale-[0.98]">
+        <!-- Logo de Google dibujado aquí (no se pide a otro sitio) -->
+        <svg class="h-5 w-5 transition-transform duration-300 group-hover:scale-110" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
+          <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+          <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+          <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/>
+        </svg>
+        <span class="text-[15px]">Continuar con Google</span>
       </button>
 
       <div class="my-6 flex items-center gap-4">
-        <div class="h-px bg-white/10 flex-1"></div>
+        <div class="h-px flex-1 bg-white/10"></div>
         <span class="text-xs font-bold text-neutral-500">o entra con</span>
-        <div class="h-px bg-white/10 flex-1"></div>
+        <div class="h-px flex-1 bg-white/10"></div>
       </div>
 
       <!-- Correo o celular -->
-      <div class="vidrio rounded-[1.25rem] p-6">
-        <div role="tablist" aria-label="Forma de entrar" class="grid grid-cols-2 gap-1 p-1 rounded-xl bg-black/40 border border-white/10 mb-6">
+      <div class="vidrio rounded-3xl p-5 sm:p-6">
+        <div role="tablist" aria-label="Forma de entrar" class="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black/40 p-1">
           <button type="button" role="tab" [attr.aria-selected]="metodo === 'correo'" (click)="cambiarMetodo('correo')"
-                  class="py-2.5 rounded-lg text-sm font-black transition-colors"
+                  class="min-h-10 rounded-lg text-sm font-extrabold transition-colors"
                   [class]="metodo === 'correo' ? 'bg-acento-500 text-sobre-acento' : 'text-neutral-400 hover:text-white'">Correo</button>
           <button type="button" role="tab" [attr.aria-selected]="metodo === 'celular'" (click)="cambiarMetodo('celular')"
-                  class="py-2.5 rounded-lg text-sm font-black transition-colors"
+                  class="min-h-10 rounded-lg text-sm font-extrabold transition-colors"
                   [class]="metodo === 'celular' ? 'bg-acento-500 text-sobre-acento' : 'text-neutral-400 hover:text-white'">Celular</button>
         </div>
 
@@ -69,35 +72,35 @@
           <form (ngSubmit)="enviarCorreo()" class="space-y-4" novalidate>
             @if (modoCorreo === 'crear') {
               <label class="block">
-                <span class="etiqueta-login">Nombre y apellido</span>
-                <input name="nombre" [(ngModel)]="nombre" autocomplete="name" class="campo-login">
+                <span class="etiqueta">Nombre y apellido</span>
+                <input name="nombre" [(ngModel)]="nombre" autocomplete="name" maxlength="80" class="campo">
               </label>
             }
             <label class="block">
-              <span class="etiqueta-login">Correo</span>
-              <input name="correo" type="email" [(ngModel)]="correo" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" class="campo-login">
+              <span class="etiqueta">Correo</span>
+              <input name="correo" type="email" [(ngModel)]="correo" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="200" class="campo">
             </label>
             <label class="block">
-              <span class="etiqueta-login">Contraseña{{ modoCorreo === 'crear' ? ' (mínimo 6 caracteres)' : '' }}</span>
+              <span class="etiqueta">Contraseña{{ modoCorreo === 'crear' ? ' (mínimo 8 caracteres)' : '' }}</span>
               <span class="relative block">
                 <input name="clave" [type]="verClave ? 'text' : 'password'" [(ngModel)]="clave"
-                       [attr.autocomplete]="modoCorreo === 'crear' ? 'new-password' : 'current-password'" class="campo-login pr-20">
+                       [attr.autocomplete]="modoCorreo === 'crear' ? 'new-password' : 'current-password'" maxlength="200" class="campo !pr-20">
                 <button type="button" (click)="verClave = !verClave" [attr.aria-pressed]="verClave"
-                        class="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs font-bold text-neutral-400 hover:text-white">{{ verClave ? 'Ocultar' : 'Ver' }}</button>
+                        class="absolute right-1 top-1/2 flex h-10 -translate-y-1/2 items-center px-3 text-xs font-bold text-neutral-400 hover:text-white">{{ verClave ? 'Ocultar' : 'Ver' }}</button>
               </span>
             </label>
             @if (error) {
               <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
             }
-            <button type="submit" [disabled]="enviando" class="boton-login">
+            <button type="submit" [disabled]="enviando" class="boton-acento w-full !rounded-xl !py-3.5">
               {{ enviando ? 'Un momento…' : modoCorreo === 'entrar' ? 'Entrar' : 'Crear cuenta' }}
             </button>
-            <div class="flex flex-wrap items-center justify-between gap-2 text-xs font-bold">
+            <div class="flex flex-wrap items-center justify-between gap-x-4 text-xs font-bold">
               @if (modoCorreo === 'entrar') {
-                <button type="button" (click)="olvideClave()" class="text-neutral-400 hover:text-white underline underline-offset-4">¿Olvidaste tu contraseña?</button>
-                <button type="button" (click)="cambiarModo('crear')" class="text-neutral-200 hover:text-white">¿No tienes cuenta? <span class="underline underline-offset-4">Crear cuenta</span></button>
+                <button type="button" (click)="olvideClave()" class="enlace-toque text-neutral-400 underline underline-offset-4 hover:text-white">¿Olvidaste tu contraseña?</button>
+                <button type="button" (click)="cambiarModo('crear')" class="enlace-toque text-neutral-200 hover:text-white">¿No tienes cuenta?&nbsp;<span class="underline underline-offset-4">Crear cuenta</span></button>
               } @else {
-                <button type="button" (click)="cambiarModo('entrar')" class="text-neutral-200 hover:text-white">¿Ya tienes cuenta? <span class="underline underline-offset-4">Entrar</span></button>
+                <button type="button" (click)="cambiarModo('entrar')" class="enlace-toque text-neutral-200 hover:text-white">¿Ya tienes cuenta?&nbsp;<span class="underline underline-offset-4">Entrar</span></button>
               }
             </div>
           </form>
@@ -106,44 +109,44 @@
             @case ('numero') {
               <form (ngSubmit)="enviarCodigo()" class="space-y-4" novalidate>
                 <label class="block">
-                  <span class="etiqueta-login">Celular</span>
+                  <span class="etiqueta">Celular</span>
                   <span class="flex">
-                    <span class="flex items-center px-4 rounded-l-xl border border-r-0 border-white/10 bg-white/5 text-neutral-300 font-bold">+57</span>
-                    <input name="celular" type="tel" [(ngModel)]="celular" autocomplete="tel-national" inputmode="numeric" placeholder="300 123 4567" class="campo-login rounded-l-none">
+                    <span class="flex items-center rounded-l-xl border border-r-0 border-white/10 bg-white/5 px-4 font-bold text-neutral-300">+57</span>
+                    <input name="celular" type="tel" [(ngModel)]="celular" autocomplete="tel-national" inputmode="numeric" maxlength="16" placeholder="300 123 4567" class="campo !rounded-l-none">
                   </span>
                 </label>
-                <p class="text-xs text-neutral-500">Te enviaremos un código por SMS.</p>
+                <p class="ayuda !mt-0">Te enviamos un código por SMS.</p>
                 @if (error) {
                   <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
                 }
-                <button type="submit" [disabled]="enviando" class="boton-login">{{ enviando ? 'Enviando…' : 'Enviar código' }}</button>
+                <button type="submit" [disabled]="enviando" class="boton-acento w-full !rounded-xl !py-3.5">{{ enviando ? 'Enviando…' : 'Enviar código' }}</button>
               </form>
             }
             @case ('codigo') {
               <form (ngSubmit)="verificarCodigo()" class="space-y-4" novalidate>
                 <p class="text-sm text-neutral-300">Escribe el código que enviamos al <strong class="text-white">{{ celularCompleto }}</strong>.</p>
                 <label class="block">
-                  <span class="etiqueta-login">Código</span>
-                  <input name="codigo" [(ngModel)]="codigo" autocomplete="one-time-code" inputmode="numeric" maxlength="6" placeholder="123456" class="campo-login tracking-[0.5em] text-center text-lg">
+                  <span class="etiqueta">Código</span>
+                  <input name="codigo" [(ngModel)]="codigo" autocomplete="one-time-code" inputmode="numeric" maxlength="6" placeholder="123456" class="campo letra-grande text-center !text-xl tracking-[0.5em]">
                 </label>
                 @if (error) {
                   <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
                 }
-                <button type="submit" [disabled]="enviando" class="boton-login">{{ enviando ? 'Verificando…' : 'Entrar' }}</button>
-                <button type="button" (click)="cambiarNumero()" class="w-full text-center text-xs font-bold text-neutral-400 hover:text-white underline underline-offset-4">Cambiar número o pedir otro código</button>
+                <button type="submit" [disabled]="enviando" class="boton-acento w-full !rounded-xl !py-3.5">{{ enviando ? 'Verificando…' : 'Entrar' }}</button>
+                <button type="button" (click)="cambiarNumero()" class="enlace-toque w-full justify-center text-xs font-bold text-neutral-400 underline underline-offset-4 hover:text-white">Cambiar número o pedir otro código</button>
               </form>
             }
             @case ('nombre') {
               <form (ngSubmit)="guardarNombre()" class="space-y-4" novalidate>
                 <p class="text-sm text-neutral-300">¡Bienvenido! ¿Cómo te llamas?</p>
                 <label class="block">
-                  <span class="etiqueta-login">Nombre y apellido</span>
-                  <input name="nombre" [(ngModel)]="nombre" autocomplete="name" class="campo-login">
+                  <span class="etiqueta">Nombre y apellido</span>
+                  <input name="nombre" [(ngModel)]="nombre" autocomplete="name" maxlength="80" class="campo">
                 </label>
                 @if (error) {
                   <p role="alert" class="text-sm font-bold text-red-400">{{ error }}</p>
                 }
-                <button type="submit" [disabled]="enviando" class="boton-login">{{ enviando ? 'Guardando…' : 'Continuar' }}</button>
+                <button type="submit" [disabled]="enviando" class="boton-acento w-full !rounded-xl !py-3.5">{{ enviando ? 'Guardando…' : 'Continuar' }}</button>
               </form>
             }
           }
@@ -152,17 +155,11 @@
         <div #recaptcha></div>
       </div>
 
-      <!-- Divisor Estilizado -->
-      <div class="mt-10 flex items-center gap-4">
-        <div class="h-px bg-white/10 flex-1"></div>
-        <span class="text-[10px] font-black text-neutral-500 uppercase tracking-widest bg-white/5 px-3 py-1 rounded-full">Proceso Seguro</span>
-        <div class="h-px bg-white/10 flex-1"></div>
-      </div>
-
       <!-- Autorización de datos (Ley 1581 de 2012) -->
-      <p class="mt-8 text-center text-[11px] text-neutral-500 font-medium leading-relaxed px-4">
+      <p class="mt-7 px-2 text-center text-[11px] font-medium leading-relaxed text-neutral-500">
         Al continuar autorizas el tratamiento de tus datos personales para gestionar tus reservas, según nuestra
-        <a routerLink="/politica-de-datos" class="text-neutral-300 font-bold hover:text-white underline transition-colors">Política de tratamiento de datos</a>.
+        <a routerLink="/politica-de-datos" class="font-bold text-neutral-300 underline underline-offset-4 transition-colors hover:text-white">Política de tratamiento de datos</a>.
+        El envío del código por SMS está protegido por reCAPTCHA de Google.
       </p>
 
     </div>

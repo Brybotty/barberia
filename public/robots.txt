@@ -4,3 +4,5 @@ Disallow: /admin
 Disallow: /barbero
 Disallow: /mis-citas
 Disallow: /login
+
+Sitemap: https://elacicale.com/sitemap.xml

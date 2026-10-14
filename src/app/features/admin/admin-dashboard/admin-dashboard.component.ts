@@ -1,15 +1,22 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { CommonModule } from '@angular/common';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { map, shareReplay } from 'rxjs';
+import { CurrencyPipe, NgClass } from '@angular/common';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of } from 'rxjs';
 import { AuthService } from '../../../core/services/auth.service';
 import { CitasService } from '../../../core/services/citas.service';
+import { ConfirmarService } from '../../../core/services/confirmar.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { UsuariosService } from '../../../core/services/usuarios.service';
 import { Usuario } from '../../../core/models/usuario.model';
 import { Cita, esActiva } from '../../../core/models/cita.model';
-import { claveDia, diaDeCita } from '../../../core/utils/horario';
+import { AjustesService } from '../../../core/services/ajustes.service';
+import { MAX_DIAS_AGENDA, claveDia, compararCitas, diaDeCita, diaLargo, extenderAgenda } from '../../../core/utils/horario';
+import { rangoDe, enPeriodo, valorCobrado } from '../../../core/utils/ganancias';
+import { formatoCelular } from '../../../core/utils/colombia';
+import { CLIENTE } from '../../../config/cliente';
+import { IconoComponent } from '../../../shared/components/icono/icono.component';
+import { MarcaComponent } from '../../../shared/components/marca/marca.component';
 import { AdminCitasComponent } from '../admin-citas/admin-citas.component';
 import { AdminServiciosComponent } from '../admin-servicios/admin-servicios.component';
 import { AdminBarberosComponent } from '../admin-barberos/admin-barberos.component';
@@ -23,231 +30,230 @@ interface Pestana {
   texto: string;
   /** Texto de la barra inferior en móvil. */
   corto: string;
-  /** Trazo del ícono (path de 24x24). */
+  /** Nombre del ícono (app-icono). */
   icono: string;
 }
 
 const PESTANAS: Pestana[] = [
-  { id: 'dashboard', texto: 'Dashboard', corto: 'Inicio', icono: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
-  { id: 'citas', texto: 'Citas (Calendario)', corto: 'Citas', icono: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-  { id: 'rendimiento', texto: 'Cortes y ganancias', corto: 'Ganancias', icono: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-  { id: 'servicios', texto: 'Servicios & Precios', corto: 'Servicios', icono: 'M6.2 20.2a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4Zm11.6 0a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4ZM8.1 15.4 16.4 3.2M15.9 15.4 7.6 3.2M12 9.3l.01.01' },
-  { id: 'barberos', texto: 'Staff & Barberos', corto: 'Staff', icono: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
-  { id: 'usuarios', texto: 'Usuarios & Roles', corto: 'Usuarios', icono: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
-  { id: 'ajustes', texto: 'Ajustes (cursos)', corto: 'Ajustes', icono: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+  { id: 'dashboard', texto: 'Inicio', corto: 'Inicio', icono: 'tablero' },
+  { id: 'citas', texto: 'Citas', corto: 'Citas', icono: 'calendario' },
+  { id: 'rendimiento', texto: 'Cortes y ganancias', corto: 'Ganancias', icono: 'moneda' },
+  { id: 'servicios', texto: 'Servicios y precios', corto: 'Servicios', icono: 'tijeras' },
+  { id: 'barberos', texto: 'Equipo', corto: 'Equipo', icono: 'equipo' },
+  { id: 'usuarios', texto: 'Usuarios y roles', corto: 'Usuarios', icono: 'usuario' },
+  { id: 'ajustes', texto: 'Ajustes', corto: 'Ajustes', icono: 'ajustes' },
+];
+
+const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
+  { valor: 'cliente', nombre: 'Cliente' },
+  { valor: 'barbero', nombre: 'Barbero' },
+  { valor: 'admin', nombre: 'Admin' },
 ];
 
 @Component({
   selector: 'app-admin-dashboard',
   standalone: true,
   imports: [
-    CommonModule, RouterLink, AdminCitasComponent, AdminServiciosComponent, AdminBarberosComponent,
+    NgClass, CurrencyPipe, RouterLink, IconoComponent, MarcaComponent, AdminCitasComponent, AdminServiciosComponent, AdminBarberosComponent,
     AdminAjustesComponent, AdminRendimientoComponent,
   ],
   template: `
-    <div class="flex h-screen bg-neutral-900 text-white overflow-hidden font-sans">
-      
-      <!-- Sidebar -->
-      <aside class="w-64 bg-neutral-950 border-r border-neutral-800 flex flex-col hidden md:flex">
-        <!-- Logo -->
-        <div class="h-16 flex items-center px-6 border-b border-neutral-800 cursor-pointer" routerLink="/">
-          <h1 class="text-2xl font-black tracking-tight text-acento-500">BARBER<span class="text-white">ADMIN</span></h1>
-        </div>
-        
-        <!-- Navigation -->
-        <nav class="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+    <div class="flex h-[100dvh] overflow-hidden bg-neutral-950 font-sans text-white">
+
+      <!-- Barra lateral (escritorio) -->
+      <aside class="relative hidden w-64 shrink-0 flex-col overflow-hidden border-r border-white/10 bg-black md:flex">
+        @if (cliente.simbolo) {
+          <div class="marca-de-agua absolute -bottom-10 -right-16 h-72 w-72" [style.--simbolo]="'url(' + cliente.simbolo + ')'"></div>
+        }
+        <a routerLink="/" class="relative flex h-20 items-center border-b border-white/10 px-6 text-lg text-white transition-opacity hover:opacity-80" title="Ver la página">
+          <app-marca claseLogo="w-9 h-9" />
+        </a>
+
+        <nav class="relative flex-1 space-y-1 overflow-y-auto px-3 py-5" aria-label="Secciones del panel">
+          <p class="rotulo mb-3 px-3">Panel</p>
           @for (tab of pestanas; track tab.id) {
-            <button (click)="currentTab = tab.id" [ngClass]="currentTab === tab.id ? 'bg-acento-500 text-sobre-acento' : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all">
-              <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="tab.icono"></path></svg>
-              <span class="flex-1 text-left">{{ tab.texto }}</span>
+            <button type="button" (click)="currentTab.set(tab.id)" [attr.aria-current]="currentTab() === tab.id ? 'page' : null"
+                    class="group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition-colors"
+                    [ngClass]="currentTab() === tab.id ? 'bg-white/[0.06] text-white' : 'text-neutral-400 hover:bg-white/[0.03] hover:text-white'">
+              @if (currentTab() === tab.id) { <span class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-detalle-400"></span> }
+              <app-icono [nombre]="tab.icono" class="h-5 w-5" [ngClass]="currentTab() === tab.id ? 'text-detalle-300' : ''" [grosor]="1.8" />
+              {{ tab.texto }}
             </button>
           }
         </nav>
 
-        <!-- User Info Bottom -->
-        <div class="p-4 border-t border-neutral-800">
-          @if (authService.currentUserProfile$ | async; as user) {
-            <div class="flex items-center gap-3 mb-4 px-2">
-              <div class="w-10 h-10 rounded-full bg-acento-500/20 text-acento-500 flex items-center justify-center font-black text-lg border border-acento-500/30">
-                {{ user.nombre.charAt(0) }}
-              </div>
-              <div class="overflow-hidden">
-                <p class="text-sm font-bold truncate text-white">{{ user.nombre }}</p>
-                <p class="text-xs text-neutral-500 truncate uppercase">{{ user.rol }}</p>
+        <div class="relative border-t border-white/10 p-4">
+          @if (perfil(); as user) {
+            <div class="mb-3 flex items-center gap-3 px-1">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-detalle-400/40 bg-detalle-500/10 font-display text-sm font-bold text-detalle-200">{{ user.nombre.charAt(0) }}</span>
+              <div class="min-w-0">
+                <p class="truncate text-sm font-bold text-white">{{ user.nombre }}</p>
+                <p class="truncate text-[11px] font-bold uppercase tracking-widest text-neutral-500">Administrador</p>
               </div>
             </div>
-            <button (click)="logout()" class="w-full flex justify-center items-center gap-2 bg-neutral-800/50 hover:bg-red-500/10 text-neutral-400 hover:text-red-500 border border-transparent hover:border-red-500/30 text-sm font-bold py-2.5 px-4 rounded-xl transition-all">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-              Cerrar Sesión
-            </button>
           }
+          <div class="grid grid-cols-2 gap-2">
+            <a routerLink="/" class="boton-linea boton-chico !px-2">Ver página</a>
+            <button type="button" (click)="logout()" class="boton-linea boton-chico !px-2">Salir</button>
+          </div>
         </div>
       </aside>
 
-      <!-- Main Content -->
-      <main class="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a]">
-        
-        <!-- Mobile Header -->
-        <header class="md:hidden h-16 border-b border-neutral-800 flex items-center justify-between px-4 bg-neutral-950">
-          <h1 class="text-xl font-black text-acento-500">BARBER<span class="text-white">ADMIN</span></h1>
-          <button class="text-neutral-400 hover:text-white">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-          </button>
+      <!-- Contenido -->
+      <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+
+        <!-- Encabezado (celular) -->
+        <header class="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-black px-4 md:hidden">
+          <a routerLink="/" class="flex min-h-11 items-center text-base text-white" title="Ver la página"><app-marca claseLogo="w-8 h-8" /></a>
+          <div class="flex items-center gap-2">
+            <a routerLink="/" class="boton-linea boton-chico !px-3">Ver página</a>
+            <button type="button" (click)="logout()" class="boton-icono" aria-label="Cerrar sesión" title="Cerrar sesión">
+              <app-icono nombre="salir" class="h-5 w-5" [grosor]="1.8" />
+            </button>
+          </div>
         </header>
 
-        <!-- Dynamic View -->
-        <div class="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
-          
-          <!-- TAB: DASHBOARD -->
-          @if (currentTab === 'dashboard') {
+        <div id="contenido-panel" class="flex-1 overflow-y-auto p-4 pb-28 md:p-8 md:pb-10">
+
+          <!-- ============ INICIO ============ -->
+          @if (currentTab() === 'dashboard') {
             <div class="animate-in fade-in duration-500">
               <div class="mb-8">
-                <h2 class="text-3xl md:text-4xl font-black text-white">Hola de nuevo.</h2>
-                <p class="text-neutral-400 mt-2 text-lg">Aquí tienes el resumen de tu negocio hoy.</p>
+                <p class="rotulo mb-2">{{ hoyTexto }}</p>
+                <h2 class="titulo-panel">{{ saludo() }}</h2>
+                <p class="mt-1 text-neutral-400">Así va {{ cliente.nombre }} hoy.</p>
               </div>
 
-              <!-- Stats Grid -->
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
-                  <div class="absolute -right-6 -top-6 w-24 h-24 bg-acento-500/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                  <p class="text-neutral-400 font-bold mb-2">Citas Hoy</p>
-                  <h3 class="text-4xl font-black text-white">{{ stats.citasHoy }}</h3>
-                  <p class="text-neutral-500 text-sm font-bold mt-2">
-                    {{ stats.porAtenderHoy }} por atender
-                  </p>
+              <!-- Agenda por periodos: hasta cuándo se puede reservar, y abrir el siguiente periodo de un toque -->
+              @if (agenda(); as a) {
+                <div class="mb-6 flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center"
+                     [ngClass]="a.urgente ? 'border-red-500/30 bg-red-500/[0.06]' : 'border-detalle-400/25 bg-detalle-500/[0.05]'">
+                  <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border"
+                        [ngClass]="a.urgente ? 'border-red-500/30 text-red-300' : 'border-detalle-400/40 text-detalle-200'">
+                    <app-icono [nombre]="a.urgente ? 'alerta' : 'calendario'" class="h-5 w-5" [grosor]="1.8" />
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <p class="font-black text-white">{{ a.titulo }}</p>
+                    <p class="text-sm text-neutral-400">{{ a.texto }}</p>
+                  </div>
+                  <div class="flex shrink-0 flex-wrap gap-2">
+                    <button type="button" (click)="abrirAgenda(15)" [disabled]="abriendoAgenda()" class="boton-acento boton-chico">Abrir 15 días más</button>
+                    <button type="button" (click)="currentTab.set('ajustes')" class="boton-linea boton-chico">Elegir fechas</button>
+                  </div>
                 </div>
-                
-                <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
-                  <div class="absolute -right-6 -top-6 w-24 h-24 bg-blue-500/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                  <p class="text-neutral-400 font-bold mb-2">Ingresos Estimados Hoy</p>
-                  <h3 class="text-4xl font-black text-white">{{ stats.ingresosHoy | currency:'COP':'symbol-narrow':'1.0-0' }}</h3>
-                  <p class="text-emerald-400 text-sm font-bold mt-2">
-                    {{ stats.ingresosCompletadosHoy | currency:'COP':'symbol-narrow':'1.0-0' }} ya completados
-                  </p>
-                </div>
+              }
 
-                <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
-                  <div class="absolute -right-6 -top-6 w-24 h-24 bg-purple-500/10 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-                  <p class="text-neutral-400 font-bold mb-2">Próximas Citas</p>
-                  <h3 class="text-4xl font-black text-white">{{ stats.proximas }}</h3>
-                  <p class="text-neutral-500 text-sm font-bold mt-2">
-                    {{ stats.clientes }} clientes registrados
+              <div class="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
+                <div class="placa p-5">
+                  <p class="text-sm font-bold text-neutral-400">Citas de hoy</p>
+                  <p class="mt-1 font-display text-4xl font-black">{{ stats().citasHoy }}</p>
+                  <p class="mt-1 text-xs font-semibold text-neutral-500">{{ stats().porAtenderHoy }} por atender</p>
+                </div>
+                <div class="placa p-5">
+                  <p class="text-sm font-bold text-detalle-300">Ingresos de hoy</p>
+                  <p class="mt-1 font-display text-2xl font-black tabular-nums md:text-3xl">{{ stats().ingresosHoy | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+                  <p class="mt-1 text-xs font-semibold text-neutral-500">{{ stats().cobradoHoy | currency:'COP':'symbol-narrow':'1.0-0' }} ya cobrados</p>
+                </div>
+                <div class="placa p-5">
+                  <p class="text-sm font-bold text-neutral-400">Esta semana</p>
+                  <p class="mt-1 font-display text-4xl font-black">{{ stats().cortesSemana }}</p>
+                  <p class="mt-1 text-xs font-semibold" [ngClass]="stats().ausenciasSemana ? 'text-red-300/80' : 'text-neutral-500'">
+                    cortes hechos · {{ stats().ausenciasSemana }} no asistieron
                   </p>
                 </div>
-
+                <div class="placa p-5">
+                  <p class="text-sm font-bold text-neutral-400">Por venir</p>
+                  <p class="mt-1 font-display text-4xl font-black">{{ stats().proximas }}</p>
+                  <p class="mt-1 text-xs font-semibold text-neutral-500">{{ clientes() }} clientes registrados</p>
+                </div>
               </div>
+
+              <section class="mt-10">
+                <div class="mb-4 flex items-end justify-between gap-4">
+                  <h3 class="text-lg font-black">Lo que sigue hoy</h3>
+                  <button type="button" (click)="currentTab.set('citas')" class="enlace-toque text-sm font-bold text-detalle-200 hover:text-white">
+                    Ver el calendario <app-icono nombre="flecha" class="h-4 w-4" [grosor]="2" />
+                  </button>
+                </div>
+                @if (citas() === undefined) {
+                  <div class="tarjeta h-32 animate-pulse"></div>
+                } @else if (siguientes().length === 0) {
+                  <div class="tarjeta border-dashed px-6 py-10 text-center text-neutral-500">No quedan turnos por atender hoy.</div>
+                } @else {
+                  <ul class="tarjeta divide-y divide-white/5 overflow-hidden">
+                    @for (cita of siguientes(); track cita.id) {
+                      <li class="flex items-center gap-4 px-5 py-3.5">
+                        <p class="w-20 shrink-0 font-display text-base font-bold text-detalle-200">{{ cita.horaStr }}</p>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate font-bold">{{ cita.userName }}</p>
+                          <p class="truncate text-sm text-neutral-500">{{ cita.serviceName }} · {{ cita.barberoNombre }}</p>
+                        </div>
+                        <span class="hidden shrink-0 text-sm font-bold text-neutral-300 sm:inline">{{ cita.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+                      </li>
+                    }
+                  </ul>
+                }
+              </section>
             </div>
           }
 
-          <!-- TAB: USUARIOS -->
-          @if (currentTab === 'usuarios') {
+          <!-- ============ USUARIOS ============ -->
+          @if (currentTab() === 'usuarios') {
             <div class="animate-in fade-in duration-500">
               <div class="mb-8">
-                <h2 class="text-3xl md:text-4xl font-black text-white">Gestión de Usuarios</h2>
-                <p class="text-neutral-400 mt-2 text-lg">Administra los accesos y roles de tu equipo de barberos.</p>
+                <h2 class="titulo-panel">Usuarios y roles</h2>
+                <p class="mt-1 text-neutral-400">Quién puede entrar al panel. El rol de barbero también se asigna solo al poner su correo en Equipo.</p>
               </div>
 
-              <div class="bg-neutral-900 rounded-2xl border border-neutral-800 overflow-hidden shadow-2xl">
-                <div class="overflow-x-auto">
-                  <table class="w-full text-left text-sm text-neutral-300">
-                    <thead class="text-xs uppercase bg-neutral-950 text-neutral-500 border-b border-neutral-800">
-                      <tr>
-                        <th scope="col" class="px-6 py-5">Usuario</th>
-                        <th scope="col" class="px-6 py-5">Email</th>
-                        <th scope="col" class="px-6 py-5">Rol Actual</th>
-                        <th scope="col" class="px-6 py-5 text-right">Acciones de Rol</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @if (usuarios$ | async; as usuarios) {
-                        @for (u of usuarios; track u.uid) {
-                          <tr class="border-b border-neutral-800/50 hover:bg-neutral-800/50 transition-colors">
-                            <td class="px-6 py-4 font-bold text-white flex items-center gap-3">
-                              <div class="w-8 h-8 rounded-full bg-neutral-700 flex items-center justify-center text-xs text-white uppercase">{{ u.nombre ? u.nombre.charAt(0) : 'U' }}</div>
-                              {{ u.nombre }}
-                            </td>
-                            <td class="px-6 py-4 text-neutral-400">{{ u.email || u.telefono }}</td>
-                            <td class="px-6 py-4">
-                              <span class="px-3 py-1.5 text-[10px] uppercase tracking-widest font-black rounded-lg"
-                                [ngClass]="{
-                                  'bg-acento-500/10 text-acento-500 border border-acento-500/20': u.rol === 'admin',
-                                  'bg-blue-500/10 text-blue-500 border border-blue-500/20': u.rol === 'barbero',
-                                  'bg-neutral-800 text-neutral-400 border border-neutral-700': u.rol === 'cliente' || !u.rol
-                                }">
-                                {{ u.rol || 'cliente' }}
-                              </span>
-                            </td>
-                            <td class="px-6 py-4 text-right">
-                              <div class="flex justify-end gap-2">
-                                @if (u.rol !== 'cliente') {
-                                  <button (click)="cambiarRol(u.uid, 'cliente')" class="px-3 py-1.5 text-xs font-bold text-neutral-400 bg-neutral-950 hover:text-white hover:bg-neutral-800 border border-neutral-800 rounded-lg transition-colors">
-                                    Hacer Cliente
-                                  </button>
-                                }
-                                @if (u.rol !== 'barbero') {
-                                  <button (click)="cambiarRol(u.uid, 'barbero')" class="px-3 py-1.5 text-xs font-bold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg transition-colors">
-                                    Hacer Barbero
-                                  </button>
-                                }
-                                @if (u.rol !== 'admin') {
-                                  <button (click)="cambiarRol(u.uid, 'admin')" class="px-3 py-1.5 text-xs font-bold text-acento-500 bg-acento-500/10 hover:bg-acento-500/20 border border-acento-500/20 rounded-lg transition-colors">
-                                    Hacer Admin
-                                  </button>
-                                }
-                              </div>
-                            </td>
-                          </tr>
+              @if (usuarios() === undefined) {
+                <div class="tarjeta h-64 animate-pulse"></div>
+              } @else if (usuarios()!.length === 0) {
+                <div class="tarjeta border-dashed px-6 py-12 text-center text-neutral-500">Aún no hay usuarios registrados.</div>
+              } @else {
+                <ul class="tarjeta divide-y divide-white/5 overflow-hidden">
+                  @for (u of usuarios(); track u.uid) {
+                    <li class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+                      <div class="flex min-w-0 flex-1 items-center gap-3">
+                        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] font-display text-sm font-bold uppercase text-neutral-300">{{ u.nombre ? u.nombre.charAt(0) : '?' }}</span>
+                        <div class="min-w-0">
+                          <p class="truncate font-bold">{{ u.nombre || 'Sin nombre' }}</p>
+                          <p class="truncate text-sm text-neutral-500">{{ u.email || contacto(u) }}</p>
+                        </div>
+                      </div>
+                      <!-- El rol se cambia aquí mismo; el actual va resaltado -->
+                      <div class="flex shrink-0 rounded-xl border border-white/10 p-1" role="group" [attr.aria-label]="'Rol de ' + (u.nombre || 'este usuario')">
+                        @for (r of roles; track r.valor) {
+                          <button type="button" (click)="cambiarRol(u, r.valor)" [attr.aria-pressed]="(u.rol || 'cliente') === r.valor"
+                                  class="min-h-10 flex-1 rounded-lg px-3 text-xs font-extrabold uppercase tracking-wider transition-colors sm:flex-none"
+                                  [ngClass]="(u.rol || 'cliente') === r.valor
+                                    ? (r.valor === 'admin' ? 'bg-detalle-400 text-neutral-950' : 'bg-acento-500 text-sobre-acento')
+                                    : 'text-neutral-500 hover:text-white'">{{ r.nombre }}</button>
                         }
-                        
-                        @if (usuarios.length === 0) {
-                          <tr>
-                            <td colspan="4" class="px-6 py-12 text-center text-neutral-500">
-                              Cargando usuarios... o no hay registros.
-                            </td>
-                          </tr>
-                        }
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              }
             </div>
           }
 
-          <!-- TAB: BARBEROS -->
-          @if (currentTab === 'barberos') {
-            <app-admin-barberos></app-admin-barberos>
-          }
-
-          <!-- TAB: CITAS -->
-          @if (currentTab === 'citas') {
-            <app-admin-citas></app-admin-citas>
-          }
-
-          <!-- TAB: SERVICIOS -->
-          @if (currentTab === 'servicios') {
-            <app-admin-servicios></app-admin-servicios>
-          }
-
-          <!-- TAB: CORTES Y GANANCIAS -->
-          @if (currentTab === 'rendimiento') {
-            <app-admin-rendimiento></app-admin-rendimiento>
-          }
-
-          <!-- TAB: AJUSTES -->
-          @if (currentTab === 'ajustes') {
-            <app-admin-ajustes></app-admin-ajustes>
-          }
-
+          @if (currentTab() === 'barberos') { <app-admin-barberos /> }
+          @if (currentTab() === 'citas') { <app-admin-citas /> }
+          @if (currentTab() === 'servicios') { <app-admin-servicios /> }
+          @if (currentTab() === 'rendimiento') { <app-admin-rendimiento /> }
+          @if (currentTab() === 'ajustes') { <app-admin-ajustes /> }
         </div>
       </main>
 
-      <!-- Mobile Bottom Nav -->
-      <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-neutral-950 border-t border-neutral-800 flex overflow-x-auto scrollbar-hide px-2 py-2 pb-safe z-50">
+      <!-- Barra inferior (celular) -->
+      <nav class="fixed inset-x-0 bottom-0 z-50 flex overflow-x-auto border-t border-white/10 bg-black/95 px-1 pt-1 backdrop-blur-xl scrollbar-hide pb-seguro md:hidden" aria-label="Secciones del panel">
         @for (tab of pestanas; track tab.id) {
-          <button (click)="currentTab = tab.id" [ngClass]="currentTab === tab.id ? 'text-acento-500' : 'text-neutral-500'" class="relative shrink-0 min-w-[68px] flex flex-col items-center gap-1 px-2 py-1">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="tab.icono"></path></svg>
-            <span class="text-[10px] font-bold whitespace-nowrap">{{ tab.corto }}</span>
+          <button type="button" (click)="currentTab.set(tab.id)" [attr.aria-current]="currentTab() === tab.id ? 'page' : null"
+                  class="relative flex min-h-12 min-w-[70px] shrink-0 flex-1 flex-col items-center justify-center gap-1 px-2"
+                  [ngClass]="currentTab() === tab.id ? 'text-white' : 'text-neutral-500'">
+            @if (currentTab() === tab.id) { <span class="absolute inset-x-4 top-0 h-0.5 rounded-full bg-detalle-400"></span> }
+            <app-icono [nombre]="tab.icono" class="h-5 w-5" [ngClass]="currentTab() === tab.id ? 'text-detalle-300' : ''" [grosor]="1.8" />
+            <span class="whitespace-nowrap text-[11px] font-bold">{{ tab.corto }}</span>
           </button>
         }
       </nav>
@@ -255,58 +261,126 @@ const PESTANAS: Pestana[] = [
   `
 })
 export class AdminDashboardComponent {
-  authService = inject(AuthService);
+  private authService = inject(AuthService);
   private router = inject(Router);
   private usuariosService = inject(UsuariosService);
   private citasService = inject(CitasService);
   private notificaciones = inject(NotificationService);
+  private confirmar = inject(ConfirmarService);
+  private ajustesService = inject(AjustesService);
 
-  usuarios$ = this.usuariosService.listar().pipe(shareReplay({ bufferSize: 1, refCount: true }));
-
+  readonly cliente = CLIENTE;
   readonly pestanas = PESTANAS;
-  currentTab: Tab = 'dashboard';
+  readonly roles = ROLES;
+  readonly currentTab = signal<Tab>('dashboard');
+  readonly hoyTexto = new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
 
-  stats = {
-    citasHoy: 0,
-    porAtenderHoy: 0,
-    ingresosHoy: 0,
-    ingresosCompletadosHoy: 0,
-    proximas: 0,
-    clientes: 0,
-  };
+  readonly perfil = toSignal(this.authService.currentUserProfile$);
+  /** undefined mientras cargan. */
+  readonly usuarios = toSignal(this.usuariosService.listar().pipe(catchError(error => {
+    console.error('Error cargando usuarios:', error);
+    return of<Usuario[]>([]);
+  })));
+  readonly citas = toSignal(this.citasService.todas().pipe(catchError(error => {
+    console.error('Error cargando citas:', error);
+    return of<Cita[]>([]);
+  })));
 
-  constructor() {
-    this.citasService.todas().pipe(takeUntilDestroyed()).subscribe({
-      next: citas => this.calcularStats(citas),
-      error: error => console.error('Error cargando citas:', error),
-    });
-    this.usuarios$.pipe(
-      map(usuarios => usuarios.filter(u => (u.rol ?? 'cliente') === 'cliente').length),
-      takeUntilDestroyed(),
-    ).subscribe({
-      next: clientes => this.stats.clientes = clientes,
-      error: error => console.error('Error cargando usuarios desde Firestore:', error),
-    });
-  }
+  readonly saludo = computed(() => {
+    const nombre = this.perfil()?.nombre?.split(' ')[0];
+    return nombre ? `Hola, ${nombre}` : 'Hola de nuevo';
+  });
 
-  private calcularStats(citas: Cita[]) {
+  readonly clientes = computed(() => (this.usuarios() ?? []).filter(u => (u.rol ?? 'cliente') === 'cliente').length);
+
+  readonly stats = computed(() => {
+    const citas = this.citas() ?? [];
     const hoy = claveDia(new Date());
     const deHoy = citas.filter(c => diaDeCita(c) === hoy && c.estado !== 'cancelada');
-    const sumar = (lista: Cita[]) => lista.reduce((total, c) => total + (Number(c.precio) || 0), 0);
+    const semana = rangoDe('semana');
+    const deLaSemana = citas.filter(c => enPeriodo(c, semana));
+    const sumar = (lista: Cita[]) => lista.reduce((total, c) => total + valorCobrado(c), 0);
+    return {
+      citasHoy: deHoy.length,
+      porAtenderHoy: deHoy.filter(c => esActiva(c.estado)).length,
+      ingresosHoy: sumar(deHoy.filter(c => c.estado !== 'no-asistio')),
+      cobradoHoy: sumar(deHoy.filter(c => c.estado === 'completada')),
+      cortesSemana: deLaSemana.filter(c => c.estado === 'completada').length,
+      ausenciasSemana: deLaSemana.filter(c => c.estado === 'no-asistio').length,
+      proximas: citas.filter(c => esActiva(c.estado) && diaDeCita(c) >= hoy).length,
+    };
+  });
 
-    this.stats.citasHoy = deHoy.length;
-    this.stats.porAtenderHoy = deHoy.filter(c => esActiva(c.estado)).length;
-    this.stats.ingresosHoy = sumar(deHoy.filter(c => c.estado !== 'no-asistio'));
-    this.stats.ingresosCompletadosHoy = sumar(deHoy.filter(c => c.estado === 'completada'));
-    this.stats.proximas = citas.filter(c => esActiva(c.estado) && diaDeCita(c) >= hoy).length;
+  /** Turnos de hoy que faltan por atender, en orden. */
+  readonly siguientes = computed(() => {
+    const hoy = claveDia(new Date());
+    return (this.citas() ?? []).filter(c => diaDeCita(c) === hoy && esActiva(c.estado)).sort(compararCitas).slice(0, 6);
+  });
+
+  /** Con la agenda por periodos: cómo va el periodo abierto. null con la agenda continua (no hay nada que abrir). */
+  readonly agenda = computed(() => {
+    const periodo = this.ajustesService.periodo();
+    if (!periodo.porPeriodo) return null;
+    if (!periodo.abierta) {
+      return { urgente: true, titulo: 'La agenda está cerrada', texto: 'Ahora nadie puede reservar desde la página. Abre el siguiente periodo.' };
+    }
+    const quedan = periodo.diasRestantes ?? 0;
+    return {
+      urgente: quedan <= 3,
+      titulo: periodo.texto,
+      texto: this.ajustesService.agenda().desde > claveDia(new Date()) ? 'Tus clientes ya pueden reservar para esas fechas.'
+        : quedan === 0 ? 'Hoy es el último día que se puede reservar.'
+        : quedan === 1 ? 'Mañana es el último día que se puede reservar.'
+        : `Tus clientes pueden reservar para los próximos ${quedan + 1} días.`,
+    };
+  });
+  readonly abriendoAgenda = signal(false);
+
+  /** Abre más días de agenda sin pasar por Ajustes: desde el último día abierto o, si ya cerró, desde hoy. */
+  async abrirAgenda(dias: number) {
+    const actual = this.ajustesService.agenda();
+    const nueva = extenderAgenda(actual, dias);
+    if (nueva.hasta === actual.hasta && nueva.desde === actual.desde) {
+      this.notificaciones.error('La agenda ya está abierta al máximo', `No se puede abrir a más de ${MAX_DIAS_AGENDA} días desde hoy.`);
+      return;
+    }
+    const seguro = await this.confirmar.preguntar({
+      titulo: `¿Abrir la agenda hasta el ${diaLargo(nueva.hasta)}?`,
+      texto: 'Tus clientes podrán reservar desde la página hasta ese día.',
+      aceptar: 'Sí, abrirla',
+    });
+    if (!seguro) return;
+    this.abriendoAgenda.set(true);
+    try {
+      await this.ajustesService.guardarAgenda(nueva);
+      this.notificaciones.exito('Agenda abierta', `Ya se puede reservar hasta el ${diaLargo(nueva.hasta)}.`);
+    } catch (error) {
+      console.error('Error abriendo la agenda:', error);
+      this.notificaciones.error('No se pudo abrir la agenda', 'Revisa tu conexión e inténtalo de nuevo.');
+    } finally {
+      this.abriendoAgenda.set(false);
+    }
   }
 
-  async cambiarRol(userId: string, nuevoRol: Usuario['rol']) {
+  contacto(u: Usuario): string {
+    return u.telefono ? formatoCelular(u.telefono) : 'Sin correo';
+  }
+
+  async cambiarRol(usuario: Usuario, rol: Usuario['rol']) {
+    if ((usuario.rol ?? 'cliente') === rol) return;
+    const nombre = usuario.nombre || 'este usuario';
+    // Dar (o quitar) el control total merece una pausa.
+    if (rol === 'admin' || usuario.rol === 'admin') {
+      const seguro = await this.confirmar.preguntar(rol === 'admin'
+        ? { titulo: `¿Hacer admin a ${nombre}?`, texto: 'Podrá ver y cambiar todo: citas, precios, equipo, ganancias y roles.', aceptar: 'Sí, hacerlo admin', peligro: true }
+        : { titulo: `¿Quitarle el rol de admin a ${nombre}?`, texto: 'Dejará de poder entrar a este panel.', aceptar: 'Sí, quitárselo', peligro: true });
+      if (!seguro) return;
+    }
     try {
-      await this.usuariosService.cambiarRol(userId, nuevoRol);
+      await this.usuariosService.cambiarRol(usuario.uid, rol);
     } catch (error) {
       console.error('Error actualizando rol:', error);
-      this.notificaciones.error('No se pudo cambiar el rol', 'Revisa tu conexión y los permisos de Firestore.');
+      this.notificaciones.error('No se pudo cambiar el rol', 'Revisa tu conexión e inténtalo de nuevo.');
     }
   }
 

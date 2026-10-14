@@ -1,19 +1,25 @@
-# Barbería (El Acicale / BarberCali)
+# Barbería (El Acicale)
 
-App para barberías: reservas por barbero, enlace a cursos y paneles para barberos y administración. Un mismo código sirve a varios clientes (`src/app/config/clientes/`).
+Página y sistema de reservas para barberías: reservas por barbero (sin obligar a iniciar sesión hasta confirmar),
+agenda y disponibilidad de cada barbero, panel de administración, enlace a cursos y correos automáticos. Un mismo
+código sirve a varios clientes (`src/app/config/clientes/`).
 
-**Stack:** Angular 20 (standalone, SPA) · Firebase Auth (Google) · Cloud Firestore · Cloud Functions (correos de confirmación con Resend) · Tailwind CSS 3.
+**Stack:** Angular 20 (standalone, SPA) · Firebase Auth (Google, correo y celular) · Cloud Firestore · Cloud Storage
+(fotos del equipo) · Cloud Functions (correos con Resend) · Tailwind CSS 3.
 
 ## Desarrollo
 
 ```bash
 npm install
-npm start          # http://localhost:4200 (usa el Firebase real del cliente)
-npm test                 # tests unitarios (Karma)
-npm run test:reglas      # 109 pruebas de seguridad de firestore.rules (emulador, no toca datos reales)
-npm run test:funciones   # tests de los correos (functions/)
+npm start                # http://localhost:4200 (usa el Firebase real del cliente)
+npm test                 # 54 pruebas de la app (Karma)
+npm run test:reglas      # 202 pruebas de firestore.rules + 43 de storage.rules (emuladores, no toca datos reales)
+npm run test:funciones   # 16 pruebas de los correos (functions/)
 npm run build            # build de producción en dist/barberia/browser
 ```
+
+En Windows, `firebase emulators:exec` suele dejar vivo el Java del emulador de Firestore en el puerto 8080: si la
+siguiente corrida dice "port taken", ciérralo desde el Administrador de tareas (proceso `java`).
 
 ### Demo con datos de prueba (sin tocar datos reales)
 
@@ -21,56 +27,145 @@ npm run build            # build de producción en dist/barberia/browser
 npm run demo     # emuladores + la página en http://localhost:4200
 ```
 
-- Usa los emuladores de Firebase (proyecto `demo-acicale`) con los datos de `demo-datos/`: servicios,
-  barberos y ~5 semanas de citas. **Nunca toca el proyecto real.**
+- Usa los emuladores de Firebase (proyecto `demo-acicale`) con los datos de `demo-datos/`: servicios, dos barberos
+  (uno con día libre y descanso), unas horas cerradas y ~5 semanas de citas. **Nunca toca el proyecto real.**
 - Detén `npm start` antes: los dos usan el puerto 4200.
 - Se cierra con **Ctrl+C** en su ventana; al cerrarse guarda en `demo-datos/` lo que cambiaste.
 - Para volver a los datos originales, con la demo abierta: `npm run demo:sembrar`.
 - **El inicio de sesión es con Google real**; solo los datos van a los emuladores. La cuenta `adminEmail` de la
-  config entra como admin; cualquier otra cuenta de Google entra como cliente. No hay usuarios de prueba.
-- Los servicios se muestran con íconos propios (`app-icono`), sin emojis; el admin elige el ícono de cada servicio.
+  config entra como admin; cualquier otra cuenta entra como cliente. Para usar cuentas de prueba del emulador, pon
+  `authEmulador: true` en `src/environments/environment.emulador.ts`.
 - Datos del emulador: http://127.0.0.1:4000.
-- Si quieres volver a las cuentas de prueba del emulador (sin Google real), pon `authEmulador: true` en
-  `src/environments/environment.emulador.ts`.
+
+## Cómo reserva un cliente
+
+1. **Sin iniciar sesión** elige barbero (o "Cualquier barbero"), servicio, día y hora. La disponibilidad es pública
+   (solo dice qué medias horas están ocupadas, sin datos de nadie).
+2. Al confirmar se le pide entrar: con Google ahí mismo, o con correo o celular en `/login` (al volver conserva lo
+   que eligió). Escribe su celular (10 dígitos que empiezan por 3) y confirma.
+3. En **Mis reservas** ve sus citas como "Agendada", puede **cambiar el horario** (servicios de hasta 1 h 20 min),
+   cancelar, y **reservar de nuevo** una cita pasada con el mismo barbero y servicio.
+
+**Turnos.** La agenda ofrece un turno cada **40 minutos**, contados desde la hora en que abre cada día
+(`INTERVALO` en `src/app/core/utils/horario.ts`). El horario por defecto está en `config/clientes/*.ts`
+(`apertura`, `cierre` y, si algún día abre a otra hora, `aperturas`); el admin lo cambia en *Ajustes*. Con el de
+El Acicale (9:20 de lunes a jueves, 9:00 viernes y sábado, cierre 7:40 p. m.) los turnos son 9:20, 10:00, 10:40…
+hasta 6:40 p. m., y 9:00, 9:40, 10:20… hasta 7:00 p. m. Un servicio más largo que un turno ocupa los que necesite
+(uno de 60 minutos deja ocupados dos).
+
+Límites que hacen cumplir las reglas de Firestore (no solo la página):
+
+- **Sin doble reserva:** cada bloque de 20 minutos ocupado es un documento de `slots` con ID fijo; no se puede
+  escribir sobre uno que existe. Las citas empiezan en punto, y 20 o y 40, y se comprueban **todos** los bloques
+  del servicio. Los bloques son de 20 minutos (y no de 40, como los turnos) porque no todos los días abren a la
+  misma hora: así, dos citas que se cruzan comparten siempre algún bloque, y las reglas no necesitan saber el horario.
+- **Cupo:** 2 reservas activas por cliente y día (las reglas aceptan una tercera, que usa el cambio de horario).
+- **Agenda:** solo los días que la barbería tiene abiertos (ver *Agenda de reservas*, abajo). Reservas en línea de
+  hasta 2 h 20 min (7 bloques); las más largas las registra el admin desde *Citas*.
+- **Barbero:** no se puede reservar en su día libre, en su descanso ni en las horas que cerró.
+
+### Agenda de reservas
+
+El admin decide hasta qué día se puede reservar, en **Ajustes → Agenda de reservas**:
+
+- **Por periodos:** solo se reserva entre dos fechas (por ejemplo, del 1 al 16 de octubre). Cuando se acaban, la
+  página dice "Agenda cerrada" hasta que el admin abra el siguiente periodo. Un periodo puede llegar hasta 60 días
+  desde hoy, y con fechas que ya pasaron la agenda queda cerrada a propósito (vacaciones).
+- **Siempre abierta** (así empieza): los próximos 14 días, sin hacer nada.
+
+Con la agenda por periodos, el **Inicio** del panel muestra hasta cuándo está abierta (en rojo cuando faltan 3 días
+o menos, o cuando ya cerró) y el botón **"Abrir 15 días más"**, que alarga el periodo desde su último día sin pasar
+por Ajustes. El cliente ve "Agenda abierta hasta el…" en el calendario, en la sección *Visítanos* y en la hoja de
+*Horario* del celular. Los cambios se ven al instante, sin publicar nada. Las citas que registra el admin y los
+cierres de horas de los barberos no tienen este límite.
+
+### En celular
+
+Abajo queda fija una barra de accesos rápidos (`barra-inferior.component.ts`): **Servicios**, **Reservar**,
+**Horario** (abre una hoja con "abierto ahora", la semana, hasta cuándo va la agenda y cómo llegar, sin sacar a nadie
+de la reserva) y **WhatsApp** (o Instagram mientras la config no tenga `whatsapp`). Se quita sola mientras está el
+aviso de cookies y en el paso de confirmar la reserva, que tiene su propia barra con el total. Con la sesión de un
+admin o de un barbero aparece además **Panel**, en el centro y en dorado, que lleva a `/admin` o a `/barbero`.
+
+El menú desplegable (el de las tres rayas) tiene fondo sólido y oscurece la página detrás; un toque fuera lo cierra.
+
+### Instalar la página como app (Android y iPhone)
+
+La página trae `manifest.webmanifest`, sus íconos y las etiquetas de Apple (`apple-mobile-web-app-*` en
+`src/index.html`), así que se puede dejar en la pantalla de inicio y abre a pantalla completa, sin barras del navegador.
+
+La página **`/instalar`** ("Instalar la app", en el menú del celular y en el pie) es el enlace que se comparte:
+detecta el celular y muestra lo que corresponde (`InstalacionService` y `features/instalar/`).
+
+- **Android (Chrome, Edge, Samsung Internet):** si el navegador ya ofreció instalarla (evento
+  `beforeinstallprompt`), sale el botón **Instalar la app** y queda con un toque y una confirmación. El navegador
+  decide cuándo ofrecerlo (pide que el visitante haya tocado la página y lleve un rato en ella); mientras tanto se
+  muestran los pasos: menú ⋮ → *Instalar aplicación* (o "Agregar a pantalla principal").
+- **iPhone y iPad:** Apple no deja que una página se instale sola ni muestra ningún aviso; siempre es a mano. En
+  **Safari**: botón *Compartir* → *Agregar a inicio* → *Agregar*. La página muestra esos tres pasos. Desde iOS 16.4
+  también funciona desde Chrome o Edge.
+- **Dentro de otra app** (el navegador de Instagram, Facebook o TikTok) no se puede instalar: la página lo avisa y
+  pide abrir el enlace en Safari o Chrome.
+- Con la app ya instalada, el enlace "Instalar la app" desaparece del menú y del pie.
+
+### Qué hace que cargue rápido
+
+- **Arranque:** mientras baja la aplicación se ve la marca (`.arranque` en `src/index.html`), no una pantalla negra.
+- **Ventana de Google:** no se prepara al abrir la página sino cuando alguien va a entrar (`resolverDeVentanas` y
+  `AuthService.prepararGoogle`). Antes, en celulares y Safari, Firebase bajaba un marco de Google durante el arranque y
+  Firestore no pedía ningún dato hasta que terminaba.
+- **Datos públicos** (servicios, equipo y ajustes): una sola escucha por visita y una copia en el navegador
+  (`conCopiaLocal` en `core/utils/firestore.ts`), para pintarlos sin esperar a la red desde la segunda visita. Los
+  paneles leen siempre directo de Firestore.
+- **Mapa de Google:** su marco se pone cuando está por verse y el navegador quedó libre.
+- **Pantallas:** *Reservar* y *Servicios* se descargan por adelantado en segundo plano (`data.precargar` en las rutas).
+- **Una sola versión de Firebase:** `firebase` en `package.json` debe ser la misma serie que pide `@angular/fire`
+  (hoy la 11). Con otra, se instalan dos copias y parte de la segunda termina en lo que baja el celular.
 
 ## Roles
 
 | Rol | Cómo se obtiene | Qué puede hacer |
 |---|---|---|
-| `cliente` | Por defecto al iniciar sesión | Reservar, ver y cancelar sus citas |
-| `barbero` | El admin lo registra en *Staff & Barberos* con su email (el de su cuenta) | En *Mi panel* (`/barbero`): su agenda, sus cortes y su ganancia por período |
-| `admin` | La cuenta `adminEmail` de la config del cliente (y la misma en `firestore.rules`) | Todo |
+| `cliente` | Por defecto al iniciar sesión | Reservar, cambiar, cancelar y ver sus citas |
+| `barbero` | El admin lo registra en *Equipo* con el correo de su cuenta | *Mi panel* (`/barbero`): agenda, recordatorios por WhatsApp, su disponibilidad, sus cortes y su ganancia |
+| `admin` | La cuenta `adminEmail` de la config (y la misma en `firestore.rules` y `storage.rules`), o la que otro admin nombre en *Usuarios y roles* | Todo |
 
-El rol **solo lo puede cambiar un admin**; las reglas de Firestore impiden que un usuario modifique el suyo.
+El rol **solo lo cambia un admin**; las reglas impiden que un usuario modifique el suyo.
 
 ### Cómo entra cada quien
 
-En `/login` hay tres formas, para todos por igual: **Google**, **correo y contraseña** (entrar, crear cuenta y
-"¿Olvidaste tu contraseña?") y **celular** (código por SMS; la primera vez pide el nombre). Al entrar, cada quien va
-según su rol: el admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
+En `/login` hay tres formas, para todos por igual: **Google**, **correo y contraseña** (mínimo 8 caracteres al crear
+la cuenta) y **celular** (código por SMS; la primera vez pide el nombre). Al entrar, cada quien va según su rol: el
+admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
 
-- **Equipo:** sus cuentas se crean con el rol ya asignado (Firebase Authentication → *Agregar usuario*, con el correo
-  verificado, y su perfil en *Usuarios & Roles*). Entran con su correo y contraseña como cualquier persona.
-- **Correo sin verificar:** al crear la cuenta se envía un enlace. Mientras no lo abra, la persona puede reservar, pero
-  no le llega la confirmación por correo (las reglas solo confían en correos verificados).
-- **Celular:** solo números de Colombia (+57). En Firebase, la política de regiones de SMS permite solo `CO`; eso evita
-  cobros por SMS a otros países. Cada SMS tiene costo en el plan Blaze (lo cobra Google por mensaje).
-- Los correos de Firebase (verificar y cambiar contraseña) y el SMS salen en español (`auth.languageCode = 'es'`).
+- **Equipo:** sus cuentas se crean con el correo verificado (Firebase Authentication → *Agregar usuario*) y entran con
+  su correo y contraseña. Al poner ese correo en su perfil de *Equipo*, la cuenta recibe el rol de barbero.
+- **Correo sin verificar:** la persona puede reservar, pero no le llega la confirmación por correo (las reglas solo
+  confían en correos verificados).
+- **Celular:** solo números de Colombia (+57). Cada SMS tiene costo en el plan Blaze.
 
-### Cortes y ganancias
+## Paneles
 
-- Al marcar un turno como **hecho**, el barbero (o el admin) registra el **valor cobrado**; viene con el precio reservado
-  y se cambia si se cobró otro (servicios "Desde", adicionales).
-- Cada barbero tiene una **comisión** (% de cada servicio) en *Staff & Barberos*. Sin comisión definida gana el 100 %
-  (el dueño que también corta).
-- *Mi panel* (`/barbero`): cortes, lo generado y su ganancia por hoy, semana, mes o mes anterior; agenda de hoy, próximas
-  citas e historial. Un admin con su email en un perfil de barbero (p. ej. Jose) ve ahí sus propios cortes.
-- *Admin → Cortes y ganancias*: lo de todo el equipo, cuánto le corresponde a cada barbero y cuánto queda para la
-  barbería. El perfil del admin aparece marcado como "Tú".
+### Barbero (`/barbero`)
 
-## Cursos
+- **Agenda:** turnos de hoy ("Hecho", que pide el valor cobrado, y "No asistió") y próximas citas. Cada cita trae
+  **"Recordarle por WhatsApp"**: abre el chat del cliente con el mensaje ya escrito (no gasta correos ni dinero).
+- **Mi disponibilidad:** días libres de cada semana, descanso fijo de cada día (almuerzo) y cierre de un día o de
+  unas horas (permiso, vacaciones). La reserva deja de ofrecer esos ratos al instante. Las citas ya agendadas no se
+  tocan.
+- **Cortes y ganancias:** cortes, lo generado y su ganancia (según su comisión) por hoy, semana, mes o mes anterior.
 
-Botón en el menú y banner en el inicio hacia la página de cursos. Enlace y textos en *Admin → Ajustes*.
+### Admin (`/admin`)
+
+- **Inicio:** citas e ingresos de hoy, cortes e inasistencias de la semana y lo que sigue hoy. Con la agenda por
+  periodos, hasta cuándo está abierta y el botón para abrir 15 días más.
+- **Citas:** calendario y lista; editar, mover, completar o eliminar.
+- **Cortes y ganancias:** lo de todo el equipo, cuánto le corresponde a cada barbero y cuánto queda para la barbería.
+- **Servicios y precios:** el menú. El precio y la duración de aquí son los que valen al reservar.
+- **Equipo:** nombre, rol, **foto (se sube a Storage desde el panel)**, Instagram, orden, correo y comisión de cada
+  barbero, y su disponibilidad. **La página de inicio y la reserva muestran lo que haya aquí** (una sola fuente).
+- **Usuarios y roles**, y **Ajustes:** agenda de reservas (por periodos o siempre abierta), horario de atención
+  (horas, días que abre y fechas cerradas) y la sección de cursos. Todo se cambia sin publicar nada.
 
 ## Correos de citas
 
@@ -78,134 +173,131 @@ Cloud Functions de `functions/` que envían con [Resend](https://resend.com):
 
 | Función | Cuándo | Cliente | Barbero |
 |---|---|---|---|
-| `avisarCitaNueva` | Se crea una cita | Confirmación con detalles, "Cómo llegar", "Agregar a Google Calendar" y `.ics` (alarma 1 h antes) | Aviso con datos del cliente, WhatsApp y "Ver mi agenda"; si responde, le llega al cliente |
-| `avisarCambioDeCita` | Se cancela o cambia de día/hora | "Tu cita quedó cancelada" / "Tu cita cambió de horario" (con `.ics` actualizado) | "Se canceló la cita…" / "Cita movida…" |
-| `recordarCitas` | Todos los días a las 6:00 p. m. (Colombia) | Recordatorio a quien tiene cita mañana (no si reservó hace menos de 12 h) | — |
+| `avisarCitaNueva` | Se crea una cita | Confirmación con detalles, "Cómo llegar", "Agregar a Google Calendar" y `.ics` | Aviso con datos del cliente y WhatsApp |
+| | El cliente cambia el horario | "Tu cita cambió de horario" (un solo correo, con `.ics` actualizado) | "Cita movida…" |
+| `avisarCambioDeCita` | Se cancela, o el admin la mueve | "Tu cita quedó cancelada" / "cambió de horario" | "Se canceló…" / "Cita movida…" |
+| `recordarCitas` | Todos los días a las 6:00 p. m. (Colombia) | Recordatorio a quien tiene cita mañana (no si reservó hace menos de 12 h) | **Su agenda de mañana**, en un solo correo (solo si tiene citas) |
 
-El cliente recibe los correos en el de su cuenta de Google (en la reserva no se puede cambiar: las reglas lo
-exigen para que nadie use la página para mandar correos a terceros). El barbero, en el `emailAsociado` de su
-perfil en *Staff & Barberos*.
-
-No avisa de citas pasadas ni completadas (p. ej. las que registra el admin después de atender). Si el envío falla
-no afecta la reserva; queda en los logs (`npm --prefix functions run logs`). Si Resend pide bajar el ritmo
-(2 envíos por segundo) se reintenta solo. Plan gratis de Resend: 100 correos al día y 3.000 al mes.
+El cliente recibe los correos en el de su cuenta (no se puede cambiar: así nadie usa la página para mandar correos a
+terceros). El barbero, en el correo de su perfil de *Equipo*. Si un envío falla no afecta la reserva; queda en los
+logs (`npm --prefix functions run logs`). Plan gratis de Resend: 100 correos al día y 3.000 al mes.
 
 Configuración en `barbercali-db2` (plan Blaze):
 
-- La llave de Resend está en el secreto `RESEND_API_KEY`. Para cambiarla:
-  `firebase functions:secrets:set RESEND_API_KEY` y vuelve a desplegar.
-- Remitente, datos del negocio y la URL pública de la página: `functions/.env.barbercali-db2`.
+- La llave de Resend está en el secreto `RESEND_API_KEY` (`firebase functions:secrets:set RESEND_API_KEY`).
+- Remitente, datos del negocio y la dirección de la página (`URL_SITIO`): `functions/.env.barbercali-db2`.
 - **Dominio:** mientras el remitente sea `onboarding@resend.dev`, Resend solo entrega al correo dueño de la cuenta
-  de Resend. Para enviar a clientes y barberos: en Resend → *Domains* agrega el dominio (p. ej. `elacicale.com`),
-  copia los registros DNS en Hostinger, y cuando salga *Verified* cambia `CORREO_REMITENTE` (p. ej.
-  `El Acicale <citas@elacicale.com>`) y despliega:
+  de Resend. Para enviar a clientes y barberos hay que verificar un dominio en Resend y cambiar `CORREO_REMITENTE`.
 
 ```bash
 npm --prefix functions install            # la primera vez
 FUNCTIONS_DISCOVERY_TIMEOUT=60 firebase deploy --only functions
 ```
 
-En la demo (`npm run demo`) no se levanta el emulador de funciones. Para probar el trigger:
-`firebase emulators:start --only functions,firestore --project demo-acicale` (necesita `functions/.secret.local`
-con `RESEND_API_KEY=` cualquier valor). En los emuladores los correos no salen: se muestran en el log.
+Para probar los correos sin enviarlos: `FUNCTIONS_DISCOVERY_TIMEOUT=60 firebase emulators:start --only
+auth,firestore,functions --project demo-acicale` (necesita `functions/.secret.local` con `RESEND_API_KEY=` cualquier
+valor). En los emuladores los correos no salen: se muestran en el log.
 
 ## Modelo de datos (Firestore)
 
 - `usuarios/{uid}`: perfil, rol y teléfono.
-- `servicios/{id}`: catálogo público de servicios.
-- `barberos/{id}`: perfil **público** (nombre, especialidad, foto). Lo ve cualquiera, así que no lleva nada personal.
-- `barberosPrivado/{id}` (mismo id): `emailAsociado` (enlaza al barbero con su cuenta) y `comision`. Solo lo lee el
-  admin, y cada barbero únicamente el suyo (por su correo verificado). Las reglas rechazan guardar esos campos en
-  `barberos`. La app y las funciones los leen de aquí.
-- `citas/{id}`: reservas con datos del cliente. Solo las leen su dueño y el staff.
-- `slots/{barberoId}_{YYYY-MM-DD}_{HHmm}`: un documento por cada bloque de 30 min ocupado, sin datos personales.
-  La disponibilidad se calcula con esta colección, y como sus IDs son deterministas, las reglas impiden
-  que dos citas ocupen el mismo bloque (anti doble reserva).
-- `ajustes/sitio`: botón y sección de cursos.
+- `servicios/{id}`: catálogo público.
+- `barberos/{id}`: perfil **público** (nombre, rol, foto, Instagram, orden, `diasLibres` y `descanso`). El barbero
+  solo puede cambiar su propia disponibilidad; lo demás, el admin.
+- `barberosPrivado/{id}` (mismo id): `emailAsociado` y `comision`. Solo el admin, y cada barbero el suyo.
+- `citas/{id}`: reservas con datos del cliente. Solo las leen su dueño y el staff. Llevan `cupoId` y, si vienen de
+  un cambio de horario, `reemplazaA` (la anterior queda cancelada con `reemplazadaPor`).
+- `slots/{barberoId}_{YYYY-MM-DD}_{HHmm}`: un documento por cada bloque de 20 minutos ocupado, sin datos personales y de
+  lectura pública. De una cita (`citaId`) o un cierre del barbero (`bloqueo: true`, `motivo`).
+- `cupos/{uid}_{YYYY-MM-DD}_{1..3}`: una reserva activa del cliente ese día.
+- `ajustes/sitio`: cursos, horario de atención (`{ apertura, cierre, aperturas, diasCerrados, cierres }`, en minutos
+  desde medianoche y siempre múltiplos de 20; `aperturas` trae los días que abren a otra hora) y `agenda`
+  (`{ modo: 'continua' | 'periodo', desde, hasta }`, con las fechas como `YYYY-MM-DD`). Sin `agenda`, vale la continua.
+  Un horario guardado sin `aperturas` (de antes de los turnos de 40 min) conserva sus días y fechas cerradas, pero
+  toma las horas de la configuración.
 
-Horario de atención, intervalo y días cerrados: `src/app/core/utils/horario.ts` (`HORARIO`).
+Fotos del equipo: carpeta `staff/` del bucket de Storage (solo las maneja el admin; la página usa su URL de descarga).
 
-## Política de tratamiento de datos
+## Seguridad
 
-Página `/politica-de-datos` (Ley 1581 de 2012), enlazada desde el pie de página, el login y la reserva.
-Los datos del responsable salen de `legal` en la config del cliente: **faltan razón social, NIT y correo de
-El Acicale** (TODO en `src/app/config/clientes/acicale.ts`). Conviene que un abogado la revise antes de lanzar.
+Antes de desplegar un cambio en las reglas: `npm run test:reglas` (lo que la app hace debe funcionar y cada ataque
+debe fallar).
 
-## Reglas de Firestore (seguridad)
+- **Roles y datos personales:** nadie se da un rol ni pone el correo de otro; cada cliente ve solo sus citas y su
+  perfil; el correo y la comisión de los barberos no son públicos.
+- **Reservas:** precio, nombre y duración salen del catálogo; bloques completos y con su ID exacto; cupo por día;
+  ventana de fechas; textos con límite; la confirmación solo va al correo de quien reserva.
+- **Barberos:** solo gestionan sus citas y su agenda. **Catálogo, equipo y ajustes:** solo el admin. Cualquier otra
+  colección está cerrada.
+- **Límites de las reglas:** una escritura puede leer 10 documentos y evaluar 1.000 expresiones. La regla de crear
+  cita está medida con 7 bloques y deja margen; si le agregas comprobaciones, las pruebas avisan.
+- **Agenda:** que el día esté dentro de la agenda abierta se comprueba al crear el **cupo** (la cita ya gasta sus 10
+  lecturas, y sin cupo de ese día no hay cita). La cita solo pone el tope duro: ni en el pasado ni a más de 60 días.
+- **Sin terceros innecesarios:** las fuentes, los íconos, los avatares y el sonido de aviso van dentro de la página.
+- **Encabezados (`firebase.json`):** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS y
+  una política de contenido básica. Además hay una política **estricta en modo "solo reportar"**
+  (`Content-Security-Policy-Report-Only`): no bloquea nada, pero el navegador avisa en la consola si algo queda
+  fuera. Cuando lleve un tiempo sin avisos en producción (incluido el ingreso con Google y con celular), se puede
+  pasar a `Content-Security-Policy`. Si cambia el dominio, cámbialo ahí (en `frame-src`, por la ventana de Google).
 
-Las reglas están en `firestore.rules`, desplegadas en `barbercali-db2` el 2026-09-30. Antes de desplegar un
-cambio, corre `npm run test:reglas` (109 casos: lo que la app hace debe funcionar y cada ataque debe fallar).
+### Protecciones configuradas en Firebase (no están en el código)
 
-Qué protegen:
-
-- **Roles:** nadie se da a sí mismo el rol de barbero o admin, ni pone en su perfil el correo de otra persona.
-  Solo la cuenta de `esEmailAdmin()` puede crearse como admin.
-- **Datos personales:** cada cliente ve solo sus citas y su perfil; los visitantes sin sesión no ven citas,
-  usuarios ni disponibilidad.
-- **Reservas:** el precio, el nombre y la duración deben coincidir con el catálogo; el barbero debe existir;
-  los bloques deben ser los del día y la hora de la cita y alcanzar para toda la duración (no hay doble reserva);
-  la confirmación solo puede ir al correo de quien reserva (anti-spam); no se pueden agregar campos.
-- **Datos del equipo:** el correo y la comisión de los barberos no son públicos (`barberosPrivado`).
-- **Barberos:** solo gestionan sus propias citas (las del perfil enlazado a su correo) y solo cambian el estado
-  y el valor cobrado.
-- **Catálogo, staff y cursos:** solo los edita el admin. Cualquier otra colección está cerrada.
-
-Para desplegar:
-
-```bash
-npm install -g firebase-tools   # si no lo tienes
-firebase login
-npm run test:reglas
-firebase deploy --only firestore:rules
-```
-
-## Protecciones de Google Cloud y Firebase
-
-Estas protecciones **no están en el código**: están configuradas en el proyecto `barbercali-db2`.
-
-- **App Check** (reCAPTCHA Enterprise, por puntaje): Firestore solo atiende a la página de verdad. Un script sin el
-  token recibe 403, también para leer lo público. La app lo configura en `src/app/app.config.ts`
-  (`appCheckSiteKey` en `acicale.ts`). Puntaje mínimo 0.3, token de 1 hora. Auth no lo exige.
-- **Llave de API de Firebase**: solo acepta peticiones de `barbercali-db2.web.app`, `barbercali-db2.firebaseapp.com` y
-  `localhost`. Ojo: es una barrera contra otras páginas web, no contra un script que falsifique el origen.
-- **Clave de reCAPTCHA de App Check** ("ElAcicale"): limitada a los dos dominios de arriba (sin `localhost`).
-- **reCAPTCHA Enterprise para el SMS del celular** (modo AUDIT) y SMS permitidos solo a Colombia.
+- **App Check** (reCAPTCHA Enterprise): Firestore solo atiende a la página de verdad. Clave en `appCheckSiteKey`.
+- **Llave de API** restringida a `elacicale.com`, `www.elacicale.com`, `barbercali-db2.web.app`,
+  `barbercali-db2.firebaseapp.com` y `localhost`.
+- **reCAPTCHA Enterprise para el SMS** y SMS permitidos solo a Colombia.
 - **Secretos** (llave de Resend): en Secret Manager, nunca en el código.
 
-### Desarrollar en localhost con App Check
+Con `npm start` la página usa un token de depuración de App Check: la primera vez, copia de la consola del navegador
+el `App Check debug token` y regístralo en Firebase → *App Check* → *Administrar tokens de depuración*. No lo subas
+al repositorio: es un secreto.
 
-Con `npm start` la página usa un token de depuración (no reCAPTCHA). La primera vez, o al limpiar los datos del
-navegador, no cargan los datos hasta registrarlo:
+## Privacidad y cookies
 
-1. Abre `http://localhost:4200` con las herramientas de desarrollador (F12 → Consola).
-2. Copia el valor de `App Check debug token: xxxxxxxx-…`.
-3. Firebase → *App Check* → *Apps* → tu app web → ⋮ → *Administrar tokens de depuración* → *Agregar*.
-4. Recarga la página.
+- Página `/politica-de-datos` (Ley 1581 de 2012), con la sección de cookies. **Faltan razón social, NIT y correo de
+  El Acicale** (`legal` en `src/app/config/clientes/acicale.ts`). Conviene que un abogado la revise antes de lanzar.
+- **Aviso de cookies:** la página usa lo necesario (sesión, protección contra robots y la propia elección). Las
+  **publicaciones de Instagram** guardan cookies de Meta, así que no se cargan hasta que el visitante acepta o toca
+  "Ver las publicaciones aquí". La elección se cambia en "Preferencias de cookies" (pie de página). No hay publicidad
+  ni medición.
+- **El mapa de Google se muestra siempre** (decisión del negocio, 2026-10-11): se carga al abrir el inicio, sin pedir
+  permiso, y Google puede guardar sus cookies. El aviso y el punto 8 de la política lo dicen así. Si algún día se
+  quiere pedir permiso otra vez, el mecanismo es el mismo de Instagram (`ConsentimientoService`).
 
-`npm run demo` (emuladores) no usa App Check. No subas un token de depuración al repositorio: es un secreto.
-
-## Publicar la página (Firebase Hosting)
-
-`firebase.json` ya tiene la configuración: todas las rutas sirven la app, encabezados de seguridad
-(`nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) y caché larga solo para los archivos
-con hash (las rutas y el `index.html` no se guardan en caché, así cada publicación se ve de inmediato).
+## Publicar
 
 ```bash
+npm run test:reglas && npm test -- --watch=false --browsers=ChromeHeadless && npm run test:funciones
 npm run build
+firebase deploy --only firestore:rules,firestore:indexes,storage   # reglas e índices primero
+FUNCTIONS_DISCOVERY_TIMEOUT=60 firebase deploy --only functions
 firebase deploy --only hosting
 ```
 
-Después de la primera publicación:
+- **Storage** debe estar activado en la consola de Firebase antes de desplegar sus reglas. Para que otros admins
+  (no solo `adminEmail`) suban fotos, despliega `--only storage` en una terminal interactiva y acepta el permiso que
+  ofrece ("Grant the new role?").
+- Los encabezados solo se ven en producción (el emulador de Hosting los ignora): `curl -I https://barbercali-db2.web.app/`.
 
-1. Comprueba los encabezados: `curl -I https://barbercali-db2.web.app/` (debe salir `cache-control: no-cache`).
-2. Conecta el dominio de Hostinger en *Hosting → Agregar dominio personalizado* (Firebase da los registros DNS).
-3. Agrega el dominio en *Authentication → Configuración → Dominios autorizados* y cambia `authDomain`
-   (`src/app/config/clientes/barbercali.ts`, que usa El Acicale) por tu dominio, para que el inicio de sesión no
-   muestre "firebaseapp.com".
-4. En `functions/.env.barbercali-db2` pon `URL_SITIO` y el remitente con tu dominio, y despliega las funciones.
-5. En `src/index.html` activa `og:image` y `og:url` con la dirección completa (la vista previa al compartir el enlace).
-6. **Agrega el dominio nuevo a las protecciones**, o esa dirección dejará de funcionar:
-   - la llave de API (Google Cloud → *APIs y servicios → Credenciales → Browser key → Restricciones de sitios web*,
-     por ejemplo `https://elacicale.com/*`);
-   - la clave de reCAPTCHA "ElAcicale" (Google Cloud → *reCAPTCHA Enterprise → Claves → Dominios*), para App Check;
-   - *Authentication → Configuración → Dominios autorizados*.
+### Al conectar el dominio propio
+
+`elacicale.com` quedó conectado así el 2026-10-13 (DNS en Hostinger: `A @ 199.36.158.100`, `TXT hosting-site=…`,
+`CNAME www → barbercali-db2.web.app` y los registros de Resend). Para otro dominio o cliente:
+
+1. *Hosting → Agregar dominio personalizado* y *Authentication → Dominios autorizados*.
+2. Agrega el dominio a la llave de API y a la clave de reCAPTCHA "ElAcicale" (si no, App Check deja de funcionar ahí).
+3. Cambia `barbercali-db2.web.app` por el dominio en `src/index.html` (vista previa para redes y ficha del negocio),
+   `public/sitemap.xml`, `public/robots.txt` y `URL_SITIO` de `functions/.env.barbercali-db2`; y
+   `barbercali-db2.firebaseapp.com` en la política de `firebase.json` y en `authDomain`
+   (`src/app/config/clientes/acicale.ts`) si quieres que el ingreso con Google muestre tu dominio.
+4. Verifica el dominio en Resend y cambia `CORREO_REMITENTE`.
+
+La ficha del negocio de `src/index.html` (dirección y horario para Google) es fija: si cambia el horario habitual,
+actualízala también ahí.
+
+## Imágenes
+
+Los originales están en `recursos/originales/` (no se publican). De ahí salen el logo y el símbolo en WebP, los
+íconos (`favicon.ico`, `icono-*.png`, `apple-touch-icon.png`), la imagen para redes (`og-el-acicale.jpg`), la foto
+del local del ingreso y los retratos del equipo (`public/fotos/`). `public/jjulian.jpg` y `public/triip.jpg` se
+conservan, ya optimizados, por si algún perfil guardado aún apunta a ellos.

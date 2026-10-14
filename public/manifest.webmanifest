@@ -1,0 +1,20 @@
+{
+  "name": "El Acicale · Barbería",
+  "short_name": "El Acicale",
+  "description": "Reserva tu turno en El Acicale, barbería en Calima, Cali.",
+  "lang": "es-CO",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    { "src": "icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icono-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Reservar turno", "url": "/reservar", "icons": [{ "src": "icono-192.png", "sizes": "192x192" }] },
+    { "name": "Mis reservas", "url": "/mis-citas", "icons": [{ "src": "icono-192.png", "sizes": "192x192" }] }
+  ]
+}

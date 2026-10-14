@@ -1,8 +1,8 @@
 import { Injectable, NgZone, inject } from '@angular/core';
-import { Firestore, addDoc, collection, deleteDoc, doc, query, updateDoc, where } from '@angular/fire/firestore';
+import { Firestore, addDoc, collection, deleteDoc, doc, updateDoc } from '@angular/fire/firestore';
 import { Observable, map, shareReplay } from 'rxjs';
 import { Servicio } from '../models/servicio.model';
-import { escuchar } from '../utils/firestore';
+import { conCopiaLocal, escuchar } from '../utils/firestore';
 
 @Injectable({ providedIn: 'root' })
 export class ServiciosService {
@@ -10,7 +10,17 @@ export class ServiciosService {
   private zone = inject(NgZone);
   private serviciosRef = collection(this.firestore, 'servicios');
 
-  private readonly servicios$ = escuchar<Servicio>(this.zone, this.serviciosRef).pipe(
+  /**
+   * Lo que hay ahora en Firestore. Una sola escucha para toda la visita (refCount: false): pasar del inicio a
+   * Servicios o a Reservar no vuelve a pedir el catálogo ni a esperarlo.
+   */
+  private readonly actuales$ = escuchar<Servicio>(this.zone, this.serviciosRef).pipe(
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
+
+  /** Para las páginas públicas: primero la copia de la última visita y enseguida lo actual. */
+  private readonly servicios$ = this.actuales$.pipe(
+    conCopiaLocal('servicios'),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -18,9 +28,14 @@ export class ServiciosService {
     return this.servicios$;
   }
 
+  /** Sin la copia local: para el panel, donde se edita sobre lo que hay de verdad. */
+  actuales(): Observable<Servicio[]> {
+    return this.actuales$;
+  }
+
   destacados(): Observable<Servicio[]> {
-    return escuchar<Servicio>(this.zone, query(this.serviciosRef, where('destacado', '==', true))).pipe(
-      map(servicios => servicios.sort((a, b) => b.precio - a.precio)),
+    return this.servicios$.pipe(
+      map(servicios => servicios.filter(s => s.destacado).sort((a, b) => b.precio - a.precio)),
     );
   }
 

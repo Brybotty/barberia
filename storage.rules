@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// Reglas de Storage. Cada caso está probado en pruebas/reglas-storage.mjs (npm run test:reglas).
+//
+// La página muestra las fotos con su URL de descarga, que lleva un token propio y no pasa por estas reglas.
+// Por eso nadie más que el admin necesita leer, listar o escribir aquí.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // La cuenta de admin configurada, con su correo de Google verificado.
+    // Debe coincidir con adminEmail en src/app/config/clientes/*.ts y con esEmailAdmin() en firestore.rules.
+    function esEmailAdmin() {
+      return request.auth.token.email == 'ortizgonzalesbryanalexander1@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function perfil() {
+      return /databases/(default)/documents/usuarios/$(request.auth.uid);
+    }
+
+    // Otros admins (rol 'admin' en usuarios/{uid}, que solo un admin asigna). Leer Firestore desde aquí requiere
+    // que la cuenta de servicio de Storage tenga el rol "Firebase Rules Firestore Service Agent"; sin él, esta
+    // parte niega y solo entra la cuenta de admin configurada.
+    function tieneRolAdmin() {
+      return firestore.exists(perfil()) && firestore.get(perfil()).data.rol == 'admin';
+    }
+
+    // El correo va primero: así la cuenta principal no gasta una lectura de Firestore en cada foto.
+    function esAdmin() {
+      return request.auth != null && (esEmailAdmin() || tieneRolAdmin());
+    }
+
+    // Solo fotos JPEG, PNG o WebP de menos de 3 MB (ni HTML ni SVG: servidos desde este dominio podrían
+    // llevar scripts). El panel las sube ya comprimidas (unos 100 KB).
+    function esFoto() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp)')
+        && request.resource.size < 3 * 1024 * 1024;
+    }
+
+    // Fotos del staff (sin subcarpetas).
+    match /staff/{archivo} {
+      allow read, delete: if esAdmin();
+      allow create, update: if esAdmin() && esFoto();
+    }
+
+    // Todo lo demás queda cerrado (Storage niega lo que ninguna regla permite).
+  }
+}

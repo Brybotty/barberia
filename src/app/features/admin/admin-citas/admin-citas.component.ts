@@ -1,14 +1,28 @@
-import { CompletarCitaComponent } from '../../../shared/components/completar-cita/completar-cita.component';
-import { Component, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, DestroyRef, inject } from '@angular/core';
+import { DatePipe, NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { CitasService, HorarioNoDisponibleError } from '../../../core/services/citas.service';
+import { AjustesService } from '../../../core/services/ajustes.service';
+import { BarberosService } from '../../../core/services/barberos.service';
+import { ServiciosService } from '../../../core/services/servicios.service';
+import { ConfirmarService } from '../../../core/services/confirmar.service';
 import { NotificationService } from '../../../core/services/notification.service';
-import { Cita, EstadoCita, esActiva } from '../../../core/models/cita.model';
+import { Cita, NuevaCita, esActiva, etiquetaEstado } from '../../../core/models/cita.model';
+import { BarberoPublico } from '../../../core/models/barbero.model';
+import { Servicio } from '../../../core/models/servicio.model';
 import {
-  claveDia, compararCitas, diaDeCita, fechaDesdeClave, inicioDeCita, minutosDeCita, opcionesDeHora,
+  aperturaDe, claveDia, compararCitas, diaDeCita, duracionDe, estaCerrado, estaLibre, fechaDesdeClave, formatearHora12,
+  inicioDeCita, minutosAHora24, minutosDeCita, opcionesDeHora, trabaja,
 } from '../../../core/utils/horario';
+import { enlaceWhatsApp, esCelularValido, formatoCelular, limpiarCelular } from '../../../core/utils/colombia';
+
+const DIA_VALIDO = /^\d{4}-\d{2}-\d{2}$/;
+const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { CompletarCitaComponent } from '../../../shared/components/completar-cita/completar-cita.component';
+import { IconoComponent } from '../../../shared/components/icono/icono.component';
+import { RedSocialComponent } from '../../../shared/components/red-social/red-social.component';
 
 interface DiaCalendario {
   fecha: Date;
@@ -18,220 +32,182 @@ interface DiaCalendario {
   citas: Cita[];
 }
 
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
 @Component({
   selector: 'app-admin-citas',
   standalone: true,
-  imports: [CommonModule, FormsModule, CompletarCitaComponent],
+  imports: [DatePipe, NgClass, FormsModule, CompletarCitaComponent, IconoComponent, RedSocialComponent],
   template: `
-    <div class="animate-in fade-in duration-500 pb-20">
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+    <div class="animate-in fade-in duration-500">
+      <div class="mb-8 flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <h2 class="text-3xl md:text-4xl font-black text-white">Gestión de Citas</h2>
-          <p class="text-neutral-400 mt-2 text-lg">Visualiza y gestiona las reservas de tus clientes.</p>
+          <h2 class="titulo-panel">Citas</h2>
+          <p class="mt-1 text-neutral-400">Las reservas de tus clientes, por día o en lista.</p>
         </div>
-        
-        <!-- Toggle View & Calendar Controls -->
-        <div class="flex flex-col sm:flex-row items-center gap-4">
-          <!-- Vista Toggle -->
-          <div class="flex bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden p-1">
-            <button (click)="vista = 'calendario'" [class.bg-neutral-700]="vista === 'calendario'" [class.text-white]="vista === 'calendario'" class="px-4 py-2 rounded-lg text-neutral-400 font-medium transition-colors text-sm">
-              Calendario
-            </button>
-            <button (click)="vista = 'lista'" [class.bg-neutral-700]="vista === 'lista'" [class.text-white]="vista === 'lista'" class="px-4 py-2 rounded-lg text-neutral-400 font-medium transition-colors text-sm">
-              Lista
-            </button>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button type="button" (click)="abrirNuevaCita()" class="boton-acento">
+            <app-icono nombre="mas" class="h-4 w-4" [grosor]="2.4" /> Nueva cita
+          </button>
+          <div class="flex rounded-xl border border-white/10 p-1" role="group" aria-label="Cómo ver las citas">
+            <button type="button" (click)="vista = 'calendario'" [attr.aria-pressed]="vista === 'calendario'" class="min-h-10 rounded-lg px-4 text-sm font-bold transition-colors"
+                    [ngClass]="vista === 'calendario' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-white'">Calendario</button>
+            <button type="button" (click)="vista = 'lista'" [attr.aria-pressed]="vista === 'lista'" class="min-h-10 rounded-lg px-4 text-sm font-bold transition-colors"
+                    [ngClass]="vista === 'lista' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-white'">Lista</button>
           </div>
 
           @if (vista === 'calendario') {
-            <div class="flex items-center gap-4 bg-neutral-900 border border-neutral-800 p-1.5 rounded-xl">
-              <button (click)="cambiarMes(-1)" class="p-2 text-neutral-400 hover:text-acento-500 transition-colors">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-              </button>
-              <span class="text-white font-bold w-32 text-center uppercase tracking-widest text-sm">{{ nombreMesActual }} {{ anioActual }}</span>
-              <button (click)="cambiarMes(1)" class="p-2 text-neutral-400 hover:text-acento-500 transition-colors">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-              </button>
+            <div class="flex items-center gap-1 rounded-xl border border-white/10 p-1">
+              <button type="button" (click)="cambiarMes(-1)" class="boton-icono !border-transparent" aria-label="Mes anterior"><app-icono nombre="atras" class="h-4 w-4" [grosor]="2.2" /></button>
+              <span class="w-36 text-center font-display text-sm font-bold tracking-wide">{{ nombreMesActual }} {{ anioActual }}</span>
+              <button type="button" (click)="cambiarMes(1)" class="boton-icono !border-transparent" aria-label="Mes siguiente"><app-icono nombre="atras" class="h-4 w-4 rotate-180" [grosor]="2.2" /></button>
             </div>
           }
         </div>
       </div>
 
       @if (vista === 'calendario') {
-        <div class="flex flex-col xl:flex-row gap-6">
-          <!-- Calendario Grid -->
-          <div class="flex-grow bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-xl h-fit">
-            
-            <!-- Días de la semana -->
-            <div class="grid grid-cols-7 border-b border-neutral-800 bg-neutral-950">
+        <div class="flex flex-col gap-6 xl:flex-row">
+          <!-- Mes -->
+          <div class="tarjeta h-fit flex-grow overflow-hidden">
+            <div class="grid grid-cols-7 border-b border-white/10">
               @for (d of ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']; track d) {
-                <div class="py-3 text-center text-[10px] font-black uppercase tracking-widest text-neutral-500">{{ d }}</div>
+                <div class="py-3 text-center text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">{{ d }}</div>
               }
             </div>
-            
-            <!-- Días del mes -->
-            <div class="grid grid-cols-7 auto-rows-[80px] md:auto-rows-[100px] bg-neutral-800 gap-[1px]">
+            <div class="grid auto-rows-[72px] grid-cols-7 gap-px bg-white/5 md:auto-rows-[96px]">
               @for (dia of diasCalendario; track dia.clave) {
-                <div 
-                  class="bg-neutral-900 p-1 md:p-2 transition-colors cursor-pointer relative group overflow-hidden"
-                  [class.opacity-50]="dia.esOtroMes"
-                  [class.bg-neutral-800]="dia.esHoy && dia.clave !== diaSeleccionado"
-                  [class.ring-2]="dia.clave === diaSeleccionado"
-                  [class.ring-acento-500]="dia.clave === diaSeleccionado"
-                  [class.z-10]="dia.clave === diaSeleccionado"
-                  (click)="seleccionarDia(dia.clave)"
-                >
-                  <span 
-                    class="inline-flex w-6 h-6 md:w-7 md:h-7 items-center justify-center rounded-full text-sm font-bold mb-1"
-                    [class.bg-acento-500]="dia.esHoy || dia.clave === diaSeleccionado"
-                    [class.text-black]="dia.esHoy || dia.clave === diaSeleccionado"
-                    [class.text-white]="!dia.esHoy && dia.clave !== diaSeleccionado"
-                  >
-                    {{ dia.fecha.getDate() }}
-                  </span>
-                  
-                  <!-- Citas Reales Dots -->
-                  @if (!dia.esOtroMes && dia.citas.length > 0) {
-                    <div class="absolute bottom-2 left-2 right-2 flex flex-wrap gap-1">
-                      @for (cita of dia.citas; track cita.id) {
-                        <div class="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full" [class.bg-acento-500]="cita.estado !== 'cancelada'" [class.bg-neutral-600]="cita.estado === 'cancelada'" title="{{ cita.horaStr }}"></div>
-                      }
-                    </div>
-                    <div class="absolute bottom-1 right-2 text-[10px] text-neutral-500 font-bold block md:hidden">{{ dia.citas.length }}</div>
+                <button type="button" (click)="seleccionarDia(dia.clave)" [attr.aria-pressed]="dia.clave === diaSeleccionado"
+                        [attr.aria-label]="(dia.fecha | date:'EEEE d MMMM') + ', ' + activasDe(dia) + ' citas'"
+                        class="relative overflow-hidden bg-neutral-950 p-1.5 text-left transition-colors hover:bg-white/[0.04] md:p-2"
+                        [ngClass]="{ 'opacity-40': dia.esOtroMes, 'z-10 ring-2 ring-inset ring-detalle-400': dia.clave === diaSeleccionado }">
+                  <span class="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold"
+                        [ngClass]="dia.esHoy ? 'bg-acento-500 text-sobre-acento' : 'text-white'">{{ dia.fecha.getDate() }}</span>
+                  @if (!dia.esOtroMes && activasDe(dia) > 0) {
+                    <span class="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-1 md:bottom-2 md:left-2">
+                      <span class="h-1.5 w-1.5 rounded-full bg-detalle-400"></span>
+                      <span class="text-[11px] font-bold text-neutral-300">{{ activasDe(dia) }}<span class="hidden md:inline"> {{ activasDe(dia) === 1 ? 'cita' : 'citas' }}</span></span>
+                    </span>
                   }
-                </div>
+                </button>
               }
             </div>
           </div>
 
-          <!-- Panel Lateral de Citas del Día -->
-          <div class="w-full xl:w-96 bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-xl h-fit">
-            <h3 class="text-xl font-black text-white mb-4">Citas: {{ fechaSeleccionada | date:'dd/MM/yyyy' }}</h3>
-            
+          <!-- Día elegido -->
+          <div class="tarjeta h-fit w-full p-5 xl:w-[26rem]">
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="rotulo mb-1">Agenda del día</p>
+                <h3 class="font-display text-xl font-black capitalize">{{ fechaSeleccionada | date:'EEEE d MMMM' }}</h3>
+              </div>
+              <button type="button" (click)="abrirNuevaCita(diaSeleccionado)" class="boton-icono" aria-label="Agendar una cita este día" title="Agendar este día">
+                <app-icono nombre="mas" class="h-4 w-4" [grosor]="2.2" />
+              </button>
+            </div>
+
             @if (citasDelDiaSeleccionado.length === 0) {
-              <div class="text-center py-10 bg-neutral-950 rounded-xl border border-neutral-800">
-                <p class="text-neutral-500 font-medium">No hay citas para este día.</p>
-              </div>
+              <div class="rounded-xl border border-dashed border-white/10 py-10 text-center text-neutral-500">No hay citas este día.</div>
             } @else {
-              <div class="space-y-4">
+              <ul class="space-y-3">
                 @for (cita of citasDelDiaSeleccionado; track cita.id) {
-                  <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-4 hover:border-neutral-700 transition-colors">
-                    <div class="flex justify-between items-start mb-2">
-                      <div>
-                        <span class="inline-block bg-acento-500/10 text-acento-500 text-xs font-black px-2 py-1 rounded mb-2">{{ cita.horaStr }}</span>
-                        <h4 class="text-white font-bold">{{ cita.userName || 'Cliente' }}</h4>
-                        <p class="text-neutral-400 text-sm flex items-center gap-1 mt-1">
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
-                          {{ cita.phone || 'Sin teléfono' }}
-                        </p>
+                  <li class="rounded-xl border border-white/10 bg-black/30 p-4" [ngClass]="{ 'opacity-55': cita.estado === 'cancelada' || cita.estado === 'no-asistio' }">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="font-display text-lg font-bold text-detalle-200">{{ cita.horaStr }}</p>
+                        <p class="truncate font-bold">{{ cita.userName || 'Cliente' }}</p>
+                        <p class="truncate text-sm text-neutral-500">{{ cita.serviceName || 'Sin servicio' }} · {{ cita.barberoNombre || 'Cualquiera' }}</p>
                       </div>
-                      <div class="flex flex-col gap-2">
-                        @if (esActiva(cita.estado)) {
-                          <div class="flex gap-2">
-                            <button (click)="completando = cita" class="text-green-400 hover:text-green-300 bg-green-400/10 p-2 rounded-lg transition-colors flex-1" title="Completado">
-                              <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                            </button>
-                            <button (click)="marcarNoAsistio(cita)" class="text-neutral-400 hover:text-red-500 bg-neutral-400/10 hover:bg-red-500/10 p-2 rounded-lg transition-colors flex-1" title="No Asistió">
-                              <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                            </button>
-                          </div>
-                        } @else {
-                          <span class="text-[10px] font-black uppercase text-center px-2 py-1 rounded w-full"
-                             [ngClass]="{
-                               'bg-red-500/10 text-red-500': cita.estado === 'no-asistio',
-                               'bg-green-500/10 text-green-500': cita.estado === 'completada',
-                               'bg-neutral-500/10 text-neutral-400': cita.estado === 'cancelada'
-                             }">
-                            {{ cita.estado }}
-                          </span>
+                      <span [class]="claseEstado(cita)">{{ etiqueta(cita) }}</span>
+                    </div>
+                    <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+                      @if (esActiva(cita.estado)) {
+                        <button type="button" (click)="completando = cita" class="boton-linea boton-chico !border-emerald-500/30 !text-emerald-300 hover:!bg-emerald-500/10">
+                          <app-icono nombre="check" class="h-4 w-4" [grosor]="2.4" /> Hecho
+                        </button>
+                        <button type="button" (click)="marcarNoAsistio(cita)" class="boton-linea boton-chico">No asistió</button>
+                      }
+                      <span class="ml-auto flex gap-2">
+                        @if (cita.phone) {
+                          <a [href]="whatsapp(cita.phone)" target="_blank" rel="noopener" class="boton-icono !text-emerald-300" [attr.aria-label]="'Escribirle a ' + cita.userName + ' por WhatsApp'" [title]="telefono(cita.phone)">
+                            <app-red-social red="whatsapp" class="h-4 w-4" />
+                          </a>
                         }
-                        <div class="flex gap-2">
-                          <button (click)="abrirModalEditar(cita)" class="text-blue-400 hover:text-blue-300 bg-blue-400/10 p-2 rounded-lg transition-colors flex-1">
-                            <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                          </button>
-                          <button (click)="eliminarCita(cita)" class="text-red-400 hover:text-red-300 bg-red-400/10 p-2 rounded-lg transition-colors flex-1">
-                            <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                          </button>
-                        </div>
-                      </div>
+                        <button type="button" (click)="abrirModalEditar(cita)" class="boton-icono" aria-label="Editar o mover la cita" title="Editar o mover"><app-icono nombre="editar" class="h-4 w-4" [grosor]="1.8" /></button>
+                        <button type="button" (click)="eliminarCita(cita)" class="boton-icono peligro" aria-label="Eliminar la cita" title="Eliminar"><app-icono nombre="papelera" class="h-4 w-4" [grosor]="1.8" /></button>
+                      </span>
                     </div>
-                    <div class="mt-3 pt-3 border-t border-neutral-800 text-sm">
-                      <p class="text-neutral-400"><strong>Servicio:</strong> <span class="text-white">{{ cita.serviceName || 'No especificado' }}</span></p>
-                      <p class="text-neutral-400"><strong>Barbero:</strong> <span class="text-acento-500">{{ cita.barberoNombre || 'Cualquiera' }}</span></p>
-                    </div>
-                  </div>
+                  </li>
                 }
-              </div>
+              </ul>
             }
           </div>
         </div>
       }
 
       @if (vista === 'lista') {
-        <!-- Vista de Lista Completa -->
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden shadow-xl">
+        <!-- Celular: tarjetas. Escritorio: tabla. -->
+        <ul class="space-y-3 md:hidden">
+          @for (cita of citasOrdenadas; track cita.id) {
+            <li class="tarjeta p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="text-xs font-bold uppercase tracking-widest text-detalle-300">{{ cita.fecha | date:'EEE d MMM' }} · {{ cita.horaStr }}</p>
+                  <p class="mt-1 truncate font-bold">{{ cita.userName }}</p>
+                  <p class="truncate text-sm text-neutral-500">{{ cita.serviceName }} · {{ cita.barberoNombre || 'Cualquiera' }}</p>
+                </div>
+                <span [class]="claseEstado(cita)">{{ etiqueta(cita) }}</span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2 border-t border-white/5 pt-3">
+                @if (esActiva(cita.estado)) {
+                  <button type="button" (click)="completando = cita" class="boton-linea boton-chico !border-emerald-500/30 !text-emerald-300">Hecho</button>
+                  <button type="button" (click)="marcarNoAsistio(cita)" class="boton-linea boton-chico">No asistió</button>
+                }
+                <span class="ml-auto flex gap-2">
+                  <button type="button" (click)="abrirModalEditar(cita)" class="boton-icono" aria-label="Editar o mover la cita"><app-icono nombre="editar" class="h-4 w-4" [grosor]="1.8" /></button>
+                  <button type="button" (click)="eliminarCita(cita)" class="boton-icono peligro" aria-label="Eliminar la cita"><app-icono nombre="papelera" class="h-4 w-4" [grosor]="1.8" /></button>
+                </span>
+              </div>
+            </li>
+          } @empty {
+            <li class="tarjeta border-dashed px-6 py-10 text-center text-neutral-500">No hay citas registradas.</li>
+          }
+        </ul>
+
+        <div class="tarjeta hidden overflow-hidden md:block">
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm text-neutral-400">
-              <thead class="text-xs uppercase bg-neutral-950 text-neutral-500 font-black tracking-wider">
-                <tr>
-                  <th class="px-6 py-4">Fecha y Hora</th>
-                  <th class="px-6 py-4">Cliente</th>
-                  <th class="px-6 py-4">Servicio</th>
-                  <th class="px-6 py-4">Barbero</th>
-                  <th class="px-6 py-4 text-right">Acciones</th>
-                </tr>
+            <table class="tabla">
+              <thead>
+                <tr><th>Fecha y hora</th><th>Cliente</th><th>Servicio</th><th>Barbero</th><th>Estado</th><th class="text-right">Acciones</th></tr>
               </thead>
-              <tbody class="divide-y divide-neutral-800">
+              <tbody>
                 @for (cita of citasOrdenadas; track cita.id) {
-                  <tr class="hover:bg-neutral-800/50 transition-colors">
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <div class="text-white font-bold">{{ cita.fecha | date:'dd/MM/yyyy' }}</div>
-                      <div class="text-acento-500 font-medium text-xs">{{ cita.horaStr }}</div>
+                  <tr class="transition-colors hover:bg-white/[0.02]">
+                    <td class="whitespace-nowrap">
+                      <p class="font-bold capitalize">{{ cita.fecha | date:'EEE d MMM' }}</p>
+                      <p class="text-xs font-bold text-detalle-300">{{ cita.horaStr }}</p>
                     </td>
-                    <td class="px-6 py-4">
-                      <div class="text-white font-bold">{{ cita.userName }}</div>
-                      <div class="text-neutral-500 text-xs">{{ cita.phone || '-' }}</div>
+                    <td>
+                      <p class="font-bold">{{ cita.userName }}</p>
+                      <p class="text-xs text-neutral-500">{{ cita.phone ? telefono(cita.phone) : 'Sin celular' }}</p>
                     </td>
-                    <td class="px-6 py-4">
-                      <span class="bg-neutral-800 px-2 py-1 rounded text-xs text-white">{{ cita.serviceName || 'N/A' }}</span>
-                    </td>
-                    <td class="px-6 py-4">
-                      <span class="text-acento-500">{{ cita.barberoNombre || 'Cualquiera' }}</span>
-                    </td>
-                    <td class="px-6 py-4 text-right">
+                    <td class="text-neutral-300">{{ cita.serviceName || 'Sin servicio' }}</td>
+                    <td class="text-neutral-300">{{ cita.barberoNombre || 'Cualquiera' }}</td>
+                    <td><span [class]="claseEstado(cita)">{{ etiqueta(cita) }}</span></td>
+                    <td>
                       <div class="flex justify-end gap-2">
                         @if (esActiva(cita.estado)) {
-                          <button (click)="completando = cita" class="text-green-400 hover:text-green-300 bg-green-400/10 p-2 rounded-lg transition-colors" title="Marcar como Completado">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                          </button>
-                          <button (click)="marcarNoAsistio(cita)" class="text-neutral-400 hover:text-red-500 bg-neutral-400/10 hover:bg-red-500/10 p-2 rounded-lg transition-colors" title="No Asistió">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                          </button>
-                        } @else {
-                          <span class="text-xs px-2 py-1 rounded"
-                             [ngClass]="{
-                               'bg-red-500/10 text-red-500': cita.estado === 'no-asistio',
-                               'bg-green-500/10 text-green-500': cita.estado === 'completada',
-                               'bg-neutral-500/10 text-neutral-400': cita.estado === 'cancelada'
-                             }">
-                            {{ cita.estado }}
-                          </span>
+                          <button type="button" (click)="completando = cita" class="boton-icono !text-emerald-300 hover:!border-emerald-500/40" aria-label="Marcar como hecho" title="Hecho"><app-icono nombre="check" class="h-4 w-4" [grosor]="2.4" /></button>
+                          <button type="button" (click)="marcarNoAsistio(cita)" class="boton-icono" aria-label="Marcar que no asistió" title="No asistió"><app-icono nombre="ausente" class="h-4 w-4" [grosor]="1.8" /></button>
                         }
-                        <button (click)="abrirModalEditar(cita)" class="text-blue-400 hover:text-blue-300 bg-blue-400/10 p-2 rounded-lg transition-colors">
-                          Editar
-                        </button>
-                        <button (click)="eliminarCita(cita)" class="text-red-400 hover:text-red-300 bg-red-400/10 p-2 rounded-lg transition-colors">
-                          Eliminar
-                        </button>
+                        <button type="button" (click)="abrirModalEditar(cita)" class="boton-icono" aria-label="Editar o mover la cita" title="Editar o mover"><app-icono nombre="editar" class="h-4 w-4" [grosor]="1.8" /></button>
+                        <button type="button" (click)="eliminarCita(cita)" class="boton-icono peligro" aria-label="Eliminar la cita" title="Eliminar"><app-icono nombre="papelera" class="h-4 w-4" [grosor]="1.8" /></button>
                       </div>
                     </td>
                   </tr>
-                }
-                @if (citasOrdenadas.length === 0) {
-                  <tr>
-                    <td colspan="5" class="px-6 py-8 text-center text-neutral-500">
-                      No hay citas registradas.
-                    </td>
-                  </tr>
+                } @empty {
+                  <tr><td colspan="6" class="!py-10 text-center text-neutral-500">No hay citas registradas.</td></tr>
                 }
               </tbody>
             </table>
@@ -240,45 +216,125 @@ interface DiaCalendario {
       }
     </div>
 
-    <!-- Modal para Editar Cita -->
+    <!-- Editar o mover una cita -->
     @if (modalCitaVisible && citaEditando) {
-      <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
-          <div class="p-6 border-b border-neutral-800 flex justify-between items-center">
-            <h3 class="text-xl font-black text-white">Editar Reserva</h3>
-            <button (click)="cerrarModal()" class="text-neutral-400 hover:text-white">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-          </div>
-          <div class="p-6 space-y-4">
-            <div>
-              <label class="block text-xs font-bold text-neutral-400 uppercase mb-2">Cliente</label>
-              <input type="text" [(ngModel)]="edicion.userName" class="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-white focus:border-acento-500 outline-none">
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-neutral-400 uppercase mb-2">Teléfono</label>
-              <input type="text" [(ngModel)]="edicion.phone" class="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-white focus:border-acento-500 outline-none">
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-bold text-neutral-400 uppercase mb-2">Fecha</label>
-                <input type="date" [(ngModel)]="edicion.dia" class="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-white focus:border-acento-500 outline-none [color-scheme:dark]">
-              </div>
-              <div>
-                <label class="block text-xs font-bold text-neutral-400 uppercase mb-2">Hora</label>
-                <select [(ngModel)]="edicion.minutos" class="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-white focus:border-acento-500 outline-none [color-scheme:dark]">
-                  @for (opcion of opcionesHora; track opcion.minutos) {
+      <div class="fixed inset-0 z-[90] flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="editar-cita">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200" (click)="cerrarModal()"></div>
+        <form (ngSubmit)="guardarCita()" class="relative w-full rounded-t-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-6 duration-300 sm:max-w-md sm:rounded-3xl sm:p-7">
+          <p class="rotulo mb-2">{{ citaEditando.serviceName }}</p>
+          <h3 id="editar-cita" class="text-xl font-black">Editar o mover la cita</h3>
+          <div class="mt-6 space-y-4">
+            <label class="block">
+              <span class="etiqueta">Cliente</span>
+              <input type="text" name="userName" [(ngModel)]="edicion.userName" maxlength="120" class="campo">
+            </label>
+            <label class="block">
+              <span class="etiqueta">Celular</span>
+              <input type="tel" name="phone" [(ngModel)]="edicion.phone" maxlength="25" inputmode="numeric" class="campo">
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block">
+                <span class="etiqueta">Fecha</span>
+                <input type="date" name="dia" [(ngModel)]="edicion.dia" class="campo [color-scheme:dark]">
+              </label>
+              <label class="block">
+                <span class="etiqueta">Hora</span>
+                <select name="minutos" [(ngModel)]="edicion.minutos" class="campo [color-scheme:dark]">
+                  @for (opcion of opcionesHora(); track opcion.minutos) {
                     <option [ngValue]="opcion.minutos">{{ opcion.etiqueta }}</option>
                   }
                 </select>
-              </div>
+              </label>
             </div>
+            <p class="ayuda">Si cambias el día o la hora, al cliente y al barbero les llega el aviso por correo.</p>
           </div>
-          <div class="p-6 bg-neutral-950 border-t border-neutral-800 flex justify-end gap-3">
-            <button (click)="cerrarModal()" class="px-6 py-2.5 rounded-xl font-bold text-neutral-300 hover:bg-neutral-800 transition-colors">Cancelar</button>
-            <button (click)="guardarCita()" [disabled]="guardando" class="disabled:opacity-50 px-6 py-2.5 rounded-xl font-bold text-black bg-acento-500 hover:bg-acento-400 transition-colors">Guardar Cambios</button>
+          <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button type="button" (click)="cerrarModal()" class="boton-linea">Cancelar</button>
+            <button type="submit" [disabled]="guardando" class="boton-acento">{{ guardando ? 'Guardando…' : 'Guardar cambios' }}</button>
           </div>
-        </div>
+        </form>
+      </div>
+    }
+
+    <!-- Registrar una cita que llegó por WhatsApp, por teléfono o en el local -->
+    @if (nuevaVisible) {
+      <div class="fixed inset-0 z-[90] flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="nueva-cita">
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200" (click)="cerrarNuevaCita()"></div>
+        <form (ngSubmit)="guardarNuevaCita()" class="relative max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl border border-white/10 bg-neutral-950 p-6 shadow-2xl animate-in fade-in slide-in-from-bottom-6 duration-300 sm:max-w-lg sm:rounded-3xl sm:p-7">
+          <p class="rotulo mb-2">Agenda</p>
+          <h3 id="nueva-cita" class="text-xl font-black">Nueva cita</h3>
+          <p class="mt-1 text-sm text-neutral-400">Para las citas que te piden por WhatsApp, por teléfono o en el local.</p>
+
+          <div class="mt-6 space-y-4">
+            <label class="block">
+              <span class="etiqueta">Cliente</span>
+              <input type="text" name="nuevaNombre" [(ngModel)]="nueva.userName" maxlength="120" required autocomplete="off" class="campo"
+                     [class.campo-error]="intentoNueva && !nueva.userName.trim()" placeholder="Nombre y apellido">
+            </label>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block">
+                <span class="etiqueta">Celular (opcional)</span>
+                <input type="tel" name="nuevaCelular" [(ngModel)]="nueva.phone" maxlength="25" inputmode="numeric" autocomplete="off" class="campo"
+                       [class.campo-error]="intentoNueva && !celularNuevoValido" placeholder="300 123 4567">
+                @if (intentoNueva && !celularNuevoValido) { <span class="texto-error">10 dígitos, empezando por 3.</span> }
+              </label>
+              <label class="block">
+                <span class="etiqueta">Correo (opcional)</span>
+                <input type="email" name="nuevaCorreo" [(ngModel)]="nueva.userEmail" maxlength="120" autocomplete="off" class="campo"
+                       [class.campo-error]="intentoNueva && !correoNuevoValido" placeholder="cliente@correo.com">
+                @if (intentoNueva && !correoNuevoValido) { <span class="texto-error">Revisa el correo.</span> }
+              </label>
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="block">
+                <span class="etiqueta">Barbero</span>
+                <select name="nuevaBarbero" [(ngModel)]="nueva.barberoId" (ngModelChange)="calcularHorasNuevas()" class="campo [color-scheme:dark]">
+                  @for (b of barberos; track b.id) {
+                    <option [ngValue]="b.id">{{ b.nombre }}</option>
+                  }
+                </select>
+              </label>
+              <label class="block">
+                <span class="etiqueta">Servicio</span>
+                <select name="nuevaServicio" [(ngModel)]="nueva.servicioId" (ngModelChange)="calcularHorasNuevas()" class="campo [color-scheme:dark]">
+                  @for (s of servicios; track s.id) {
+                    <option [ngValue]="s.id">{{ s.nombre }} · {{ duracion(s) }} min</option>
+                  }
+                </select>
+              </label>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block">
+                <span class="etiqueta">Fecha</span>
+                <input type="date" name="nuevaDia" [(ngModel)]="nueva.dia" (ngModelChange)="escucharDiaNuevo()" required class="campo [color-scheme:dark]">
+              </label>
+              <label class="block">
+                <span class="etiqueta">Hora</span>
+                <select name="nuevaMinutos" [(ngModel)]="nueva.minutos" [disabled]="horasNuevas.length === 0" class="campo [color-scheme:dark]"
+                        [class.campo-error]="intentoNueva && nueva.minutos === null">
+                  @if (nueva.minutos === null) { <option [ngValue]="null" disabled>{{ cargandoHorasNuevas ? 'Cargando…' : 'Elige' }}</option> }
+                  @for (opcion of horasNuevas; track opcion.minutos) {
+                    <option [ngValue]="opcion.minutos">{{ opcion.etiqueta }}</option>
+                  }
+                </select>
+              </label>
+            </div>
+            @if (!cargandoHorasNuevas && horasNuevas.length === 0 && nueva.dia) {
+              <p class="texto-error !mt-0">{{ barberoNuevo?.nombre ?? 'El barbero' }} no tiene horas libres ese día para este servicio.</p>
+            }
+            @for (aviso of avisosNuevaCita; track aviso) {
+              <p class="flex items-start gap-2 text-xs font-semibold text-detalle-200"><app-icono nombre="alerta" class="mt-px h-4 w-4 shrink-0" [grosor]="1.8" /> {{ aviso }}</p>
+            }
+            <p class="ayuda">Solo se ofrecen las horas en que el barbero no tiene otra cita ni un rato cerrado. Al barbero le llega el aviso por correo{{ correoNuevoLleno ? ', y al cliente la confirmación' : '' }}.</p>
+          </div>
+
+          <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button type="button" (click)="cerrarNuevaCita()" class="boton-linea">Cancelar</button>
+            <button type="submit" [disabled]="guardandoNueva" class="boton-acento">{{ guardandoNueva ? 'Agendando…' : 'Agendar cita' }}</button>
+          </div>
+        </form>
       </div>
     }
 
@@ -286,17 +342,21 @@ interface DiaCalendario {
       <app-completar-cita [cita]="completando" (cerrar)="completando = null" />
     }
   `,
-  styles: [`
-    .scrollbar-hide::-webkit-scrollbar { display: none; }
-    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-  `]
 })
 export class AdminCitasComponent {
   private citasService = inject(CitasService);
+  private ajustes = inject(AjustesService);
   private notificaciones = inject(NotificationService);
+  private confirmar = inject(ConfirmarService);
 
   readonly esActiva = esActiva;
-  readonly opcionesHora = opcionesDeHora();
+  /** Horas del selector: las del horario vigente y, si la cita está fuera de él, también la suya. */
+  opcionesHora() {
+    const opciones = opcionesDeHora(this.ajustes.horario());
+    const actual = this.edicion.minutos;
+    if (opciones.some(o => o.minutos === actual)) return opciones;
+    return [...opciones, { minutos: actual, etiqueta: formatearHora12(actual) }].sort((a, b) => a.minutos - b.minutos);
+  }
   /** Cita que se está marcando como completada (pide el valor cobrado). */
   completando: Cita | null = null;
 
@@ -315,6 +375,18 @@ export class AdminCitasComponent {
   citaEditando: Cita | null = null;
   edicion = { userName: '', phone: '', dia: '', minutos: 0 };
 
+  // Para agendar una cita desde el panel
+  barberos: BarberoPublico[] = [];
+  servicios: Servicio[] = [];
+  nuevaVisible = false;
+  guardandoNueva = false;
+  intentoNueva = false;
+  cargandoHorasNuevas = false;
+  nueva = this.nuevaVacia();
+  horasNuevas: { minutos: number; etiqueta: string }[] = [];
+  private ocupadosNuevo: ReadonlySet<string> = new Set();
+  private escuchaSlots?: Subscription;
+
   constructor() {
     this.diasCalendario = this.construirCalendario();
     this.citasService.todas().pipe(takeUntilDestroyed()).subscribe({
@@ -324,6 +396,15 @@ export class AdminCitasComponent {
       },
       error: error => console.error('Error cargando citas', error),
     });
+    inject(BarberosService).listar().pipe(takeUntilDestroyed()).subscribe(barberos => {
+      this.barberos = barberos;
+      if (this.nuevaVisible) this.calcularHorasNuevas();
+    });
+    inject(ServiciosService).actuales().pipe(takeUntilDestroyed()).subscribe(servicios => {
+      this.servicios = servicios;
+      if (this.nuevaVisible) this.calcularHorasNuevas();
+    });
+    inject(DestroyRef).onDestroy(() => this.escuchaSlots?.unsubscribe());
   }
 
   get fechaSeleccionada(): Date {
@@ -331,12 +412,36 @@ export class AdminCitasComponent {
   }
 
   get nombreMesActual(): string {
-    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    return meses[this.fechaActual.getMonth()];
+    return MESES[this.fechaActual.getMonth()];
   }
 
   get anioActual(): number {
     return this.fechaActual.getFullYear();
+  }
+
+  activasDe(dia: DiaCalendario): number {
+    return dia.citas.filter(c => c.estado !== 'cancelada').length;
+  }
+
+  etiqueta(cita: Cita): string {
+    return etiquetaEstado(cita, 'equipo');
+  }
+
+  claseEstado(cita: Cita): string {
+    switch (cita.estado) {
+      case 'completada': return 'chip-ok';
+      case 'no-asistio': return 'chip-mal';
+      case 'cancelada': return 'chip-neutro';
+      default: return 'chip-activa';
+    }
+  }
+
+  whatsapp(telefono: string): string {
+    return enlaceWhatsApp(telefono);
+  }
+
+  telefono(telefono: string): string {
+    return formatoCelular(telefono);
   }
 
   seleccionarDia(clave: string) {
@@ -384,12 +489,18 @@ export class AdminCitasComponent {
   }
 
   async eliminarCita(cita: Cita) {
-    if (!confirm('¿Estás seguro de que deseas eliminar esta reserva?')) return;
+    const seguro = await this.confirmar.preguntar({
+      titulo: '¿Eliminar esta cita?',
+      texto: `${cita.userName}, ${cita.horaStr}. Se borra del todo y no cuenta en cortes ni ganancias. Si el cliente canceló, es mejor dejarla como cancelada.`,
+      aceptar: 'Sí, eliminar',
+      peligro: true,
+    });
+    if (!seguro) return;
     try {
       await this.citasService.eliminar(cita);
     } catch (e) {
       console.error(e);
-      this.notificaciones.error('Error al eliminar la cita');
+      this.notificaciones.error('No se pudo eliminar la cita');
     }
   }
 
@@ -417,31 +528,178 @@ export class AdminCitasComponent {
       this.cerrarModal();
     } catch (e) {
       if (e instanceof HorarioNoDisponibleError) {
-        this.notificaciones.error('Horario ocupado', 'El barbero ya tiene otra cita en ese horario.');
+        this.notificaciones.error('Horario ocupado', 'El barbero ya tiene otra cita o cerró ese rato.');
       } else {
         console.error(e);
-        this.notificaciones.error('Error al actualizar la cita');
+        this.notificaciones.error('No se pudo actualizar la cita');
       }
     } finally {
       this.guardando = false;
     }
   }
 
-  async marcarEstado(cita: Cita, estado: EstadoCita) {
-    if (!confirm(`¿Confirmar marcar este turno como ${estado}?`)) return;
+  // --- Nueva cita desde el panel ---
+
+  private nuevaVacia() {
+    return { userName: '', phone: '', userEmail: '', barberoId: '', servicioId: '', dia: '', minutos: null as number | null };
+  }
+
+  duracion(servicio: Servicio): number {
+    return duracionDe(servicio);
+  }
+
+  get barberoNuevo(): BarberoPublico | undefined {
+    return this.barberos.find(b => b.id === this.nueva.barberoId);
+  }
+
+  get servicioNuevo(): Servicio | undefined {
+    return this.servicios.find(s => s.id === this.nueva.servicioId);
+  }
+
+  get celularNuevoValido(): boolean {
+    return !this.nueva.phone.trim() || esCelularValido(this.nueva.phone);
+  }
+
+  get correoNuevoLleno(): boolean {
+    return !!this.nueva.userEmail.trim();
+  }
+
+  get correoNuevoValido(): boolean {
+    return !this.correoNuevoLleno || CORREO_VALIDO.test(this.nueva.userEmail.trim());
+  }
+
+  /** Lo que conviene saber antes de agendar, sin impedirlo: el admin puede atender fuera del horario. */
+  get avisosNuevaCita(): string[] {
+    const { dia, minutos } = this.nueva;
+    if (!DIA_VALIDO.test(dia)) return [];
+    const horario = this.ajustes.horario();
+    const avisos: string[] = [];
+    if (dia < claveDia(new Date())) avisos.push('Es un día que ya pasó. La cita queda registrada, sin avisos por correo.');
+    if (estaCerrado(dia, horario)) avisos.push('La barbería está cerrada ese día.');
+    else if (minutos !== null && minutos < aperturaDe(horario, fechaDesdeClave(dia).getDay())) avisos.push('Es antes de la hora en que abre la barbería ese día.');
+    const barbero = this.barberoNuevo;
+    if (barbero && barbero.diasLibres?.includes(fechaDesdeClave(dia).getDay())) {
+      avisos.push(`Es el día libre de ${barbero.nombre}.`);
+    } else if (barbero && minutos !== null && this.servicioNuevo && !trabaja(barbero, dia, minutos, duracionDe(this.servicioNuevo))) {
+      avisos.push(`Se cruza con el descanso de ${barbero.nombre}.`);
+    }
+    return avisos;
+  }
+
+  abrirNuevaCita(dia = claveDia(new Date())) {
+    this.nueva = {
+      ...this.nuevaVacia(),
+      dia,
+      barberoId: this.barberos[0]?.id ?? '',
+      servicioId: this.servicios[0]?.id ?? '',
+    };
+    this.intentoNueva = false;
+    this.nuevaVisible = true;
+    this.escucharDiaNuevo();
+  }
+
+  cerrarNuevaCita() {
+    this.nuevaVisible = false;
+    this.escuchaSlots?.unsubscribe();
+    this.escuchaSlots = undefined;
+  }
+
+  /** Escucha los bloques ocupados del día elegido: si alguien reserva mientras el admin llena el formulario, esa hora desaparece. */
+  escucharDiaNuevo() {
+    this.escuchaSlots?.unsubscribe();
+    this.ocupadosNuevo = new Set();
+    const dia = this.nueva.dia;
+    this.cargandoHorasNuevas = DIA_VALIDO.test(dia);
+    this.calcularHorasNuevas();
+    if (!this.cargandoHorasNuevas) return;
+    this.escuchaSlots = this.citasService.slotsOcupados(dia).subscribe({
+      next: ocupados => {
+        this.ocupadosNuevo = ocupados;
+        this.cargandoHorasNuevas = false;
+        this.calcularHorasNuevas();
+      },
+      error: error => {
+        console.error('Error cargando la agenda del día', error);
+        this.cargandoHorasNuevas = false;
+        this.calcularHorasNuevas();
+      },
+    });
+  }
+
+  /** Horas cada 20 min del horario en que el barbero tiene libres todos los bloques del servicio. */
+  calcularHorasNuevas() {
+    const { barberoId, dia } = this.nueva;
+    const servicio = this.servicioNuevo;
+    const horario = this.ajustes.horario();
+    if (this.cargandoHorasNuevas || !barberoId || !servicio || !DIA_VALIDO.test(dia)) {
+      this.horasNuevas = [];
+    } else {
+      const duracion = duracionDe(servicio);
+      this.horasNuevas = opcionesDeHora(horario).filter(o =>
+        o.minutos + duracion <= horario.cierre && estaLibre(barberoId, dia, o.minutos, duracion, this.ocupadosNuevo));
+    }
+    if (!this.horasNuevas.some(o => o.minutos === this.nueva.minutos)) this.nueva.minutos = null;
+  }
+
+  async guardarNuevaCita() {
+    this.intentoNueva = true;
+    const { dia, minutos } = this.nueva;
+    const servicio = this.servicioNuevo;
+    const barbero = this.barberoNuevo;
+    if (!this.nueva.userName.trim() || !this.celularNuevoValido || !this.correoNuevoValido
+      || !servicio || !barbero || !DIA_VALIDO.test(dia) || minutos === null) {
+      this.notificaciones.error('Revisa la cita', 'Completa el cliente, el barbero, el servicio, la fecha y la hora.');
+      return;
+    }
+    const datos: NuevaCita = {
+      userId: '',
+      userName: this.nueva.userName.trim().slice(0, 120),
+      userEmail: this.nueva.userEmail.trim(),
+      phone: this.nueva.phone.trim() ? limpiarCelular(this.nueva.phone) : '',
+      servicioId: servicio.id!,
+      serviceName: servicio.nombre,
+      precio: servicio.precio,
+      duracionMinutos: duracionDe(servicio),
+      barberoId: barbero.id!,
+      barberoNombre: barbero.nombre.slice(0, 80),
+      dia,
+      hora: minutosAHora24(minutos),
+      horaStr: formatearHora12(minutos),
+      fecha: fechaDesdeClave(dia, minutos).toISOString(),
+    };
     try {
-      await this.citasService.cambiarEstado(cita, estado);
+      this.guardandoNueva = true;
+      await this.citasService.registrarDesdePanel(datos);
+      this.cerrarNuevaCita();
+      // Deja a la vista el día de la cita nueva.
+      this.fechaActual = fechaDesdeClave(dia);
+      this.diasCalendario = this.construirCalendario();
+      this.seleccionarDia(dia);
+      this.notificaciones.exito('Cita agendada', `${datos.userName}, ${datos.horaStr} con ${datos.barberoNombre}.`);
     } catch (e) {
-      console.error(e);
-      this.notificaciones.error('Error al actualizar el estado');
+      if (e instanceof HorarioNoDisponibleError) {
+        this.notificaciones.error('Horario ocupado', 'Esa hora se acaba de ocupar. Elige otra.');
+      } else {
+        console.error(e);
+        this.notificaciones.error('No se pudo agendar la cita');
+      }
+    } finally {
+      this.guardandoNueva = false;
     }
   }
 
-  marcarNoAsistio(cita: Cita) {
+  async marcarNoAsistio(cita: Cita) {
     if (new Date() < inicioDeCita(cita)) {
-      this.notificaciones.error('Aún no es la hora', `No puedes marcar "No asistió" antes de la hora estipulada (${cita.horaStr}).`);
+      this.notificaciones.error('Aún no es la hora', `No se puede marcar "No asistió" antes de la hora de la cita (${cita.horaStr}).`);
       return;
     }
-    this.marcarEstado(cita, 'no-asistio');
+    const seguro = await this.confirmar.preguntar({ titulo: '¿El cliente no asistió?', texto: `${cita.userName}, ${cita.horaStr}.`, aceptar: 'Sí, no asistió' });
+    if (!seguro) return;
+    try {
+      await this.citasService.cambiarEstado(cita, 'no-asistio');
+    } catch (e) {
+      console.error(e);
+      this.notificaciones.error('No se pudo actualizar el estado');
+    }
   }
 }

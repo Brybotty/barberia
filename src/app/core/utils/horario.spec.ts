@@ -1,11 +1,12 @@
 import { Cita } from '../models/cita.model';
 import {
-  Horario, claveDia, compararCitas, diaDeCita, diasReservables, formatearHora12, horariosDisponibles,
-  minutosDeCita, normalizarEstado, parsearHora, resumenHorario, slotsDeCita,
+  Horario, claveDia, compararCitas, diaDeCita, diasReservables, estaLibre, formatearHora12, horariosDisponibles,
+  minutosDeCita, normalizarEstado, parsearHora, resumenHorario, slotsDeCita, turnosDelDia,
 } from './horario';
 
-// Horario fijo para que los tests no dependan del cliente activo.
-const horario: Horario = { apertura: 600, cierre: 1200, intervalo: 30, diasCerrados: [0], diasReservables: 14 };
+// Horario fijo para que los tests no dependan del cliente activo: lunes a jueves desde las 9:20, viernes y sábado
+// desde las 9:00, cierre a las 7:40 p. m. y un turno cada 40 minutos.
+const horario: Horario = { apertura: 560, cierre: 1180, aperturas: { 5: 540, 6: 540 }, intervalo: 40, diasCerrados: [0], diasReservables: 14 };
 
 describe('horario', () => {
   describe('parsearHora', () => {
@@ -54,44 +55,76 @@ describe('horario', () => {
     expect(normalizarEstado('pendiente')).toBe('pendiente');
   });
 
-  it('slotsDeCita ocupa todos los bloques de 30 min que dura el servicio', () => {
-    expect(slotsDeCita('b1', '2026-10-01', 600, 90).map(s => s.id)).toEqual([
-      'b1_2026-10-01_1000', 'b1_2026-10-01_1030', 'b1_2026-10-01_1100',
+  it('slotsDeCita ocupa todos los bloques de 20 min que dura el servicio', () => {
+    expect(slotsDeCita('b1', '2026-10-01', 600, 60).map(s => s.id)).toEqual([
+      'b1_2026-10-01_1000', 'b1_2026-10-01_1020', 'b1_2026-10-01_1040',
     ]);
-    expect(slotsDeCita('b1', '2026-10-01', 600, 40)).toHaveSize(2);
+    expect(slotsDeCita('b1', '2026-10-01', 560, 40).map(s => s.hora)).toEqual(['09:20', '09:40']);
   });
 
   describe('horariosDisponibles', () => {
     const manana = new Date(2026, 9, 1, 8, 0);
-    const dia = '2026-10-02';
+    const jueves = '2026-10-01';
+    const dia = '2026-10-02'; // viernes: abre a las 9:00
+    const etiquetas = (d: string, duracion = 40) =>
+      horariosDisponibles({ dia: d, duracion, barberos: ['b1'], ocupados: new Set(), ahora: new Date(2026, 8, 30, 8), horario }).map(h => h.etiqueta);
+
+    it('los turnos van cada 40 minutos desde la hora en que abre ese día', () => {
+      expect(etiquetas(jueves).slice(0, 4)).toEqual(['9:20 AM', '10:00 AM', '10:40 AM', '11:20 AM']);
+      expect(etiquetas(dia).slice(0, 4)).toEqual(['9:00 AM', '9:40 AM', '10:20 AM', '11:00 AM']);
+    });
+
+    it('el último turno es el que termina a más tardar a la hora del cierre (7:40 p. m.)', () => {
+      expect(etiquetas(dia).at(-1)).toBe('7:00 PM'); // viernes: 7:00 a 7:40
+      expect(etiquetas(jueves).at(-1)).toBe('6:40 PM'); // jueves: el de las 7:20 terminaría a las 8:00
+      expect(turnosDelDia(horario, 5)).toHaveSize(16);
+      expect(turnosDelDia(horario, 4)).toHaveSize(15);
+    });
 
     it('no ofrece horas en las que el servicio terminaría después del cierre', () => {
       const horas = horariosDisponibles({ dia, duracion: 120, barberos: ['b1'], ocupados: new Set(), ahora: manana, horario });
-      expect(horas[0].etiqueta).toBe('10:00 AM');
-      expect(horas[horas.length - 1].etiqueta).toBe('6:00 PM');
+      expect(horas[0].etiqueta).toBe('9:00 AM');
+      expect(horas[horas.length - 1].etiqueta).toBe('5:40 PM');
     });
 
     it('bloquea las horas que se solapan con cualquier bloque ocupado', () => {
       const ocupados = new Set(['b1_2026-10-02_1100']);
-      const horas = horariosDisponibles({ dia, duracion: 90, barberos: ['b1'], ocupados, ahora: manana, horario });
-      const etiquetas = horas.map(h => h.etiqueta);
-      // Un servicio de 90 min que empieza a las 10:00 terminaría 11:30 y pisa el bloque de las 11:00.
-      expect(etiquetas).not.toContain('10:00 AM');
-      expect(etiquetas).not.toContain('10:30 AM');
-      expect(etiquetas).not.toContain('11:00 AM');
-      expect(etiquetas).toContain('11:30 AM');
+      const horas = horariosDisponibles({ dia, duracion: 80, barberos: ['b1'], ocupados, ahora: manana, horario });
+      const libres = horas.map(h => h.etiqueta);
+      // Un servicio de 80 min que empieza a las 10:20 terminaría a las 11:40 y pisa el bloque de las 11:00.
+      expect(libres).toContain('9:40 AM');
+      expect(libres).not.toContain('10:20 AM');
+      expect(libres).not.toContain('11:00 AM');
+      expect(libres).toContain('11:40 AM');
+    });
+
+    it('un servicio de una hora deja ocupados dos turnos de 40 minutos', () => {
+      const ocupados = new Set(slotsDeCita('b1', dia, 540, 60).map(s => s.id)); // de 9:00 a 10:00
+      const horas = horariosDisponibles({ dia, duracion: 40, barberos: ['b1'], ocupados, ahora: manana, horario });
+      expect(horas[0].etiqueta).toBe('10:20 AM');
     });
 
     it('con varios barberos, la hora sigue disponible mientras alguno esté libre', () => {
-      const ocupados = new Set(['b1_2026-10-02_1000']);
-      const horas = horariosDisponibles({ dia, duracion: 30, barberos: ['b1', 'b2'], ocupados, ahora: manana, horario });
-      expect(horas[0]).toEqual({ minutos: 600, etiqueta: '10:00 AM', barberosLibres: ['b2'] });
+      const ocupados = new Set(['b1_2026-10-02_0900']);
+      const horas = horariosDisponibles({ dia, duracion: 40, barberos: ['b1', 'b2'], ocupados, ahora: manana, horario });
+      expect(horas[0]).toEqual({ minutos: 540, etiqueta: '9:00 AM', barberosLibres: ['b2'] });
     });
 
     it('hoy solo ofrece horas futuras', () => {
       const ahora = new Date(2026, 9, 2, 14, 10);
-      const horas = horariosDisponibles({ dia, duracion: 30, barberos: ['b1'], ocupados: new Set(), ahora, horario });
-      expect(horas[0].etiqueta).toBe('2:30 PM');
+      const horas = horariosDisponibles({ dia, duracion: 40, barberos: ['b1'], ocupados: new Set(), ahora, horario });
+      expect(horas[0].etiqueta).toBe('2:20 PM');
+    });
+
+    it('respeta las citas guardadas con la rejilla anterior, de media hora', () => {
+      // Una cita vieja de 10:30 a 11:30 dejó los bloques de las 10:30 y las 11:00, de 30 minutos cada uno.
+      const vieja = new Set(['b1_2026-10-02_1030', 'b1_2026-10-02_1100']);
+      expect(estaLibre('b1', dia, 580, 40, vieja)).toBeTrue(); // 9:40 a 10:20
+      expect(estaLibre('b1', dia, 620, 40, vieja)).toBeFalse(); // 10:20 a 11:00
+      expect(estaLibre('b1', dia, 680, 40, vieja)).toBeFalse(); // 11:20 a 12:00: la vieja va hasta las 11:30
+      expect(estaLibre('b1', dia, 700, 40, vieja)).toBeTrue(); // 11:40 a 12:20
+      // Un bloque nuevo en punto dura 20 minutos: el turno de las 11:20 sigue libre.
+      expect(estaLibre('b1', dia, 680, 40, new Set(['b1_2026-10-02_1100']))).toBeTrue();
     });
 
     it('no ofrece días pasados', () => {
@@ -106,11 +139,13 @@ describe('horario', () => {
     expect(claveDia(dias[0])).toBe('2026-10-01');
   });
 
-  it('resumenHorario agrupa los días abiertos consecutivos', () => {
+  it('resumenHorario agrupa los días seguidos que tienen el mismo horario', () => {
     expect(resumenHorario(horario)).toEqual([
-      { dias: 'Lun – Sáb', horas: '10:00 AM – 8:00 PM', abierto: true },
-      { dias: 'Dom', horas: 'Cerrado', abierto: false },
+      { dias: 'Lun – Jue', horas: '9:20 AM – 7:40 PM', abierto: true, incluye: [1, 2, 3, 4] },
+      { dias: 'Vie – Sáb', horas: '9:00 AM – 7:40 PM', abierto: true, incluye: [5, 6] },
+      { dias: 'Dom', horas: 'Cerrado', abierto: false, incluye: [0] },
     ]);
-    expect(resumenHorario({ ...horario, diasCerrados: [0, 1] })[0]).toEqual({ dias: 'Lun', horas: 'Cerrado', abierto: false });
+    expect(resumenHorario({ ...horario, aperturas: {} })[0]).toEqual({ dias: 'Lun – Sáb', horas: '9:20 AM – 7:40 PM', abierto: true, incluye: [1, 2, 3, 4, 5, 6] });
+    expect(resumenHorario({ ...horario, diasCerrados: [0, 1] })[0]).toEqual({ dias: 'Lun', horas: 'Cerrado', abierto: false, incluye: [1] });
   });
 });

@@ -1,5 +1,5 @@
 import { Component, inject } from '@angular/core';
-import { CommonModule, CurrencyPipe } from '@angular/common';
+import { CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { IconoServicio, Servicio, iconoDe } from '../../core/models/servicio.model';
@@ -7,25 +7,27 @@ import { IconoComponent } from '../../shared/components/icono/icono.component';
 import { ServiciosService } from '../../core/services/servicios.service';
 import { DuracionPipe } from '../../shared/pipes/duracion.pipe';
 import { RevelarDirective } from '../../shared/directives/revelar.directive';
-
-type ServicioCatalogo = Servicio;
+import { CLIENTE } from '../../config/cliente';
 
 interface CategoriaServicios {
   nombre: string;
   icono: IconoServicio;
-  servicios: ServicioCatalogo[];
+  servicios: Servicio[];
 }
+
+const ROMANOS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
 @Component({
   selector: 'app-servicios',
   standalone: true,
-  imports: [CommonModule, CurrencyPipe, DuracionPipe, RevelarDirective, IconoComponent],
+  imports: [CurrencyPipe, DuracionPipe, RevelarDirective, IconoComponent],
   templateUrl: './servicios.component.html'
 })
 export class ServiciosComponent {
   private router = inject(Router);
   private serviciosService = inject(ServiciosService);
 
+  readonly cliente = CLIENTE;
   categorias: CategoriaServicios[] = [];
 
   constructor() {
@@ -35,26 +37,26 @@ export class ServiciosComponent {
     });
   }
 
-  private agruparCategorias(servicios: ServicioCatalogo[]) {
-    const map = new Map<string, ServicioCatalogo[]>();
-    
-    servicios.forEach(s => {
-      const catName = s.categoria || 'Otros';
-      if (!map.has(catName)) {
-        map.set(catName, []);
-      }
-      map.get(catName)!.push(s);
-    });
+  /** Las categorías van numeradas en romanos, como las capitales del logo. */
+  romano(n: number): string {
+    return ROMANOS[n - 1] ?? String(n);
+  }
 
-    this.categorias = Array.from(map.keys()).map(catName => ({
-      nombre: catName,
+  private agruparCategorias(servicios: Servicio[]) {
+    const porCategoria = new Map<string, Servicio[]>();
+    for (const s of [...servicios].sort((a, b) => b.precio - a.precio)) {
+      const nombre = s.categoria || 'Otros';
+      porCategoria.set(nombre, [...(porCategoria.get(nombre) ?? []), s]);
+    }
+    this.categorias = [...porCategoria].map(([nombre, lista]) => ({
+      nombre,
       // El ícono de la categoría es el de su primer servicio.
-      icono: iconoDe(map.get(catName)![0]),
-      servicios: map.get(catName)!
+      icono: iconoDe(lista[0]),
+      servicios: lista,
     }));
   }
 
-  agendarServicio(servicio: ServicioCatalogo) {
+  agendarServicio(servicio: Servicio) {
     this.router.navigate(['/reservar'], { state: { servicio } });
   }
 }

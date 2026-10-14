@@ -9,6 +9,11 @@ export const ESTADOS_ACTIVOS: readonly EstadoCita[] = ['pendiente', 'confirmada'
  */
 export const BARBERO_CUALQUIERA = 'cualquiera';
 
+/** Reservas activas que la página deja tener a un cliente para un mismo día. */
+export const RESERVAS_POR_DIA = 2;
+/** Cupos por día que aceptan las reglas (uno más que RESERVAS_POR_DIA: lo usa el reagendar). */
+export const CUPOS_POR_DIA = 3;
+
 export interface Cita {
   id?: string;
   userId: string;
@@ -35,13 +40,37 @@ export interface Cita {
   creadoEn: string;
   /** IDs de los documentos de `slots` que bloquea esta cita. */
   slotIds?: string[];
+  /** Documento de `cupos` que ocupa ({uid}_{dia}_{n}): limita las reservas de un cliente por día. */
+  cupoId?: string;
+  /** Al reagendar: la cita anterior que esta reemplaza. */
+  reemplazaA?: string;
+  /** Al reagendar: la cita nueva que reemplazó a esta (queda cancelada). */
+  reemplazadaPor?: string;
 }
 
-export type NuevaCita = Omit<Cita, 'id' | 'estado' | 'creadoEn' | 'slotIds' | 'dia' | 'hora'> & {
+export type NuevaCita = Omit<Cita, 'id' | 'estado' | 'creadoEn' | 'slotIds' | 'dia' | 'hora' | 'cupoId' | 'reemplazaA' | 'reemplazadaPor' | 'precioFinal'> & {
   dia: string;
   hora: string;
 };
 
 export function esActiva(estado: EstadoCita): boolean {
   return ESTADOS_ACTIVOS.includes(estado);
+}
+
+/**
+ * Cómo se le dice a cada quien el estado de la cita. Al cliente no se le muestra "pendiente":
+ * la reserva queda en firme al hacerla, no espera la confirmación de nadie.
+ */
+export function etiquetaEstado(cita: Pick<Cita, 'estado' | 'reemplazadaPor'>, para: 'cliente' | 'equipo' = 'equipo'): string {
+  switch (cita.estado) {
+    case 'pendiente':
+    case 'confirmada':
+      return 'Agendada';
+    case 'completada':
+      return para === 'cliente' ? 'Atendida' : 'Hecho';
+    case 'no-asistio':
+      return para === 'cliente' ? 'No asististe' : 'No asistió';
+    case 'cancelada':
+      return cita.reemplazadaPor ? 'Reagendada' : 'Cancelada';
+  }
 }

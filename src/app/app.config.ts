@@ -1,14 +1,19 @@
-import { ApplicationConfig, LOCALE_ID } from '@angular/core';
+import { ApplicationConfig, LOCALE_ID, provideZoneChangeDetection } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsCo from '@angular/common/locales/es-CO';
-import { provideRouter, withInMemoryScrolling } from '@angular/router';
+import { TitleStrategy, provideRouter, withInMemoryScrolling, withPreloading } from '@angular/router';
 import { routes } from './app.routes';
-import { initializeApp, provideFirebaseApp } from '@angular/fire/app';
+import { getApp, initializeApp, provideFirebaseApp } from '@angular/fire/app';
 import { initializeAppCheck, provideAppCheck, ReCaptchaEnterpriseProvider } from '@angular/fire/app-check';
-import { connectAuthEmulator, getAuth, provideAuth } from '@angular/fire/auth';
+import {
+  browserLocalPersistence, browserSessionPersistence, connectAuthEmulator, indexedDBLocalPersistence, initializeAuth, provideAuth,
+} from '@angular/fire/auth';
 import { connectFirestoreEmulator, getFirestore, provideFirestore } from '@angular/fire/firestore';
 import { CLIENTE } from './config/cliente';
 import { environment } from '../environments/environment';
+import { resolverDeVentanas } from './core/services/auth.service';
+import { PrecargaSelectiva } from './core/services/precarga.strategy';
+import { TituloStrategy } from './core/services/titulo.strategy';
 
 // Fechas y moneda en formato colombiano ("miércoles 1 oct", "$ 30.000").
 registerLocaleData(localeEsCo);
@@ -38,11 +43,25 @@ const appCheck = environment.emuladores || !CLIENTE.appCheckSiteKey
 export const appConfig: ApplicationConfig = {
   providers: [
     { provide: LOCALE_ID, useValue: 'es-CO' },
-    provideRouter(routes, withInMemoryScrolling({ anchorScrolling: 'enabled', scrollPositionRestoration: 'enabled' })),
+    // Varios eventos seguidos (un toque dispara tres o cuatro) se atienden con una sola pasada de la vista.
+    provideZoneChangeDetection({ eventCoalescing: true }),
+    provideRouter(
+      routes,
+      withInMemoryScrolling({ anchorScrolling: 'enabled', scrollPositionRestoration: 'enabled' }),
+      withPreloading(PrecargaSelectiva),
+    ),
+    { provide: TitleStrategy, useExisting: TituloStrategy },
     provideFirebaseApp(() => initializeApp(firebase)),
     ...appCheck,
     provideAuth(() => {
-      const auth = getAuth();
+      // Lo mismo que getAuth() (la sesión se guarda igual), salvo por la ventana de Google: getAuth() la deja
+      // lista al arrancar en celulares y en Safari, bajando un marco oculto de Google ANTES de decir si hay sesión,
+      // y Firestore no pide ningún dato hasta saberlo. Aquí se prepara cuando alguien va a entrar (ver
+      // AuthService.prepararGoogle), y los servicios, el equipo y los horarios cargan sin esa espera.
+      const auth = initializeAuth(getApp(), {
+        persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
+        popupRedirectResolver: resolverDeVentanas,
+      });
       if (environment.emuladores && environment.authEmulador) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
       return auth;
     }),

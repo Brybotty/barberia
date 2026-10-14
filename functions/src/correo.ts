@@ -5,6 +5,8 @@
 
 /** Campos de la cita que usan los correos (los mismos que guarda la app al reservar). */
 export interface Cita {
+  /** Cuenta que reservó. */
+  userId?: string;
   userName: string;
   userEmail?: string;
   phone?: string;
@@ -23,6 +25,10 @@ export interface Cita {
   fecha?: string;
   estado: string;
   creadoEn?: string;
+  /** Al reagendar: la cita anterior que esta reemplaza. */
+  reemplazaA?: string;
+  /** Al reagendar: la cita nueva que reemplazó a esta (queda cancelada). */
+  reemplazadaPor?: string;
 }
 
 export interface Negocio {
@@ -66,12 +72,21 @@ export function debeAvisar(cita: Cita, ahora = new Date()): boolean {
   return esActiva(cita) && porVenir(cita, ahora);
 }
 
-/** Qué cambió en una cita que todavía no pasa: se canceló o se movió de día u hora. */
+/**
+ * Qué cambió en una cita que todavía no pasa: se canceló o se movió de día u hora.
+ * Si el cliente la reagendó (queda cancelada, reemplazada por otra), aquí no se avisa: avisa la cita nueva,
+ * con un solo correo de "cambió de horario" en vez de uno de cancelación y otro de reserva.
+ */
 export function tipoDeCambio(antes: Cita, despues: Cita, ahora = new Date()): 'cancelada' | 'reprogramada' | null {
   if (!esActiva(antes) || !porVenir(antes, ahora)) return null;
-  if (despues.estado === 'cancelada') return 'cancelada';
+  if (despues.estado === 'cancelada') return despues.reemplazadaPor ? null : 'cancelada';
   const seMovio = antes.dia !== despues.dia || antes.hora !== despues.hora;
   return seMovio && esActiva(despues) && porVenir(despues, ahora) ? 'reprogramada' : null;
+}
+
+/** ¿La cita nueva reemplaza de verdad a esa otra? Debe ser de la misma cuenta (así nadie ve datos de una cita ajena). */
+export function esReemplazoDe(nueva: Cita, anterior: Cita | undefined): anterior is Cita {
+  return !!anterior && !!nueva.userId && anterior.userId === nueva.userId && !!inicioDeCita(anterior);
 }
 
 /** Día de mañana en Colombia ('YYYY-MM-DD'). */

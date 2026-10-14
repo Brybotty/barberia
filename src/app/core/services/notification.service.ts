@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { EMPTY, Observable, map, switchMap } from 'rxjs';
+import { EMPTY, Observable, map, of, switchMap } from 'rxjs';
 import { AuthService } from './auth.service';
 import { BarberosService } from './barberos.service';
 import { CitasService } from './citas.service';
@@ -37,8 +37,8 @@ export class NotificationService {
           if (this.notificadas.has(cita.id!)) continue;
           this.notificadas.add(cita.id!);
           this.mostrar(
-            '¡Nueva Reserva Recibida!',
-            `${cita.userName} agendó ${cita.serviceName} para el ${new Date(cita.fecha).toLocaleDateString()} a las ${cita.horaStr}.`,
+            cita.reemplazaA ? 'Una cita cambió de horario' : 'Nueva reserva',
+            `${cita.userName} agendó ${cita.serviceName} para el ${new Date(cita.fecha).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })} a las ${cita.horaStr}.`,
           );
           this.reproducirSonido();
         }
@@ -73,17 +73,36 @@ export class NotificationService {
     const nuevas$ = this.citas.creadasDesde(new Date().toISOString());
     if (perfil.rol === 'admin') return nuevas$;
 
-    return this.barberos.delEmail(perfil.email ?? '').pipe(
+    // Las cuentas de celular no tienen correo: no pueden estar enlazadas a un perfil de barbero.
+    return (perfil.email ? this.barberos.delEmail(perfil.email) : of([])).pipe(
       map(perfiles => [...perfiles.map(b => b.id!), BARBERO_CUALQUIERA]),
       switchMap(ids => nuevas$.pipe(map(citas => citas.filter(c => ids.includes(c.barberoId))))),
     );
   }
 
+  /** Dos notas cortas generadas en el navegador (sin descargar audio de otro sitio). */
   private reproducirSonido() {
     try {
-      const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-      audio.volume = 0.5;
-      audio.play().catch(() => console.log('Autoplay bloqueado por el navegador'));
-    } catch (e) {}
+      const ctx = new AudioContext();
+      const nota = (frecuencia: number, inicio: number) => {
+        const t = ctx.currentTime + inicio;
+        const oscilador = ctx.createOscillator();
+        const volumen = ctx.createGain();
+        oscilador.type = 'sine';
+        oscilador.frequency.value = frecuencia;
+        volumen.gain.setValueAtTime(0.0001, t);
+        volumen.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+        volumen.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+        oscilador.connect(volumen).connect(ctx.destination);
+        oscilador.start(t);
+        oscilador.stop(t + 0.4);
+      };
+      ctx.resume().catch(() => {});
+      nota(880, 0);
+      nota(1318.5, 0.16);
+      setTimeout(() => ctx.close(), 1200);
+    } catch {
+      // Sin audio (navegador antiguo o bloqueado): el aviso en pantalla basta.
+    }
   }
 }

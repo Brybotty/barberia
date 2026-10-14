@@ -7,15 +7,19 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CLIENTE } from '../../../config/cliente';
 import { Usuario } from '../../../core/models/usuario.model';
 import { MarcaComponent } from '../../../shared/components/marca/marca.component';
+import { IconoComponent } from '../../../shared/components/icono/icono.component';
 
 type Metodo = 'correo' | 'celular';
 type ModoCorreo = 'entrar' | 'crear';
 type PasoCelular = 'numero' | 'codigo' | 'nombre';
 
+/** Largo mínimo de la contraseña de una cuenta nueva (Firebase por su cuenta solo exige 6). */
+const CLAVE_MINIMA = 8;
+
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [MarcaComponent, RouterLink, FormsModule],
+  imports: [MarcaComponent, IconoComponent, RouterLink, FormsModule],
   templateUrl: './login.component.html'
 })
 export class LoginComponent implements OnDestroy {
@@ -43,6 +47,11 @@ export class LoginComponent implements OnDestroy {
   enviando = false;
   error = '';
 
+  constructor() {
+    // Aquí está el botón de Google: su ventana se deja lista desde ya (ver AuthService.prepararGoogle).
+    this.authService.prepararGoogle();
+  }
+
   ngOnDestroy() {
     this.reiniciarVerificador();
   }
@@ -68,6 +77,10 @@ export class LoginComponent implements OnDestroy {
     } catch (error: any) {
       // El usuario cerró el popup: no es un error que haya que mostrar.
       if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') return;
+      if (error?.code === 'auth/popup-blocked') {
+        this.notificaciones.error('El navegador no dejó abrir la ventana de Google', 'Toca el botón otra vez; si sigue igual, entra con tu correo o tu celular.');
+        return;
+      }
       console.error('Error al iniciar sesión:', error);
       this.notificaciones.error('Error al iniciar sesión', mensajeDeError(error?.code) || 'Inténtalo de nuevo.');
     }
@@ -87,7 +100,7 @@ export class LoginComponent implements OnDestroy {
   private async crearCuenta() {
     if (!this.nombre.trim()) return this.mostrarError('Escribe tu nombre.');
     if (!this.correo.trim()) return this.mostrarError('Escribe tu correo.');
-    if (this.clave.length < 6) return this.mostrarError('La contraseña debe tener al menos 6 caracteres.');
+    if (this.clave.length < CLAVE_MINIMA) return this.mostrarError(`La contraseña debe tener al menos ${CLAVE_MINIMA} caracteres.`);
     await this.intentar(async () => {
       const rol = await this.authService.crearCuenta(this.nombre, this.correo, this.clave);
       this.notificaciones.exito('¡Bienvenido!', 'Te enviamos un correo para verificar tu cuenta. Verifícala para recibir la confirmación de tus citas.');
@@ -216,7 +229,7 @@ function mensajeDeError(codigo: string | undefined): string {
     case 'auth/email-already-in-use':
       return 'Ese correo ya tiene una cuenta. Entra con tu contraseña o usa "¿Olvidaste tu contraseña?".';
     case 'auth/weak-password':
-      return 'La contraseña debe tener al menos 6 caracteres.';
+      return `La contraseña debe tener al menos ${CLAVE_MINIMA} caracteres.`;
     case 'auth/invalid-phone-number':
     case 'auth/missing-phone-number':
       return 'Revisa el celular: 10 dígitos que empiezan por 3.';

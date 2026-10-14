@@ -1,13 +1,14 @@
 import { Injectable, NgZone, inject } from '@angular/core';
-import { Firestore, collection, doc, query, where, writeBatch } from '@angular/fire/firestore';
+import { Firestore, collection, doc, query, updateDoc, where, writeBatch } from '@angular/fire/firestore';
 import { Observable, combineLatest, map, shareReplay } from 'rxjs';
-import { Barbero, BarberoPublico, DatosPrivadosBarbero } from '../models/barbero.model';
-import { escuchar } from '../utils/firestore';
+import { Barbero, BarberoPublico, DatosPrivadosBarbero, ordenarBarberos } from '../models/barbero.model';
+import { conCopiaLocal, escuchar } from '../utils/firestore';
+import { Disponibilidad } from '../utils/horario';
 import { UsuariosService } from './usuarios.service';
 
 /**
  * Cada barbero son dos documentos con el mismo id:
- * - `barberos/{id}`: nombre, especialidad y foto. Público (lo ve cualquiera).
+ * - `barberos/{id}`: nombre, rol, foto, Instagram y disponibilidad. Público (lo ve cualquiera).
  * - `barberosPrivado/{id}`: email de su cuenta y comisión. Solo el admin y el propio barbero.
  */
 @Injectable({ providedIn: 'root' })
@@ -18,13 +19,21 @@ export class BarberosService {
   private barberosRef = collection(this.firestore, 'barberos');
   private privadosRef = collection(this.firestore, 'barberosPrivado');
 
+  /** Lo que hay ahora en Firestore. Una sola escucha para toda la visita: cambiar de página no vuelve a pedirlo. */
   private readonly barberos$ = escuchar<BarberoPublico>(this.zone, this.barberosRef).pipe(
+    map(ordenarBarberos),
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
+
+  /** Para las páginas públicas: primero la copia de la última visita y enseguida lo actual. */
+  private readonly publicos$ = this.barberos$.pipe(
+    conCopiaLocal('barberos'),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
-  /** Perfiles públicos (para reservar). */
+  /** Perfiles públicos (la página de inicio y la reserva). */
   listar(): Observable<BarberoPublico[]> {
-    return this.barberos$;
+    return this.publicos$;
   }
 
   /** Perfiles completos. Solo para el admin: los lee todos. */
@@ -43,12 +52,11 @@ export class BarberosService {
   }
 
   async crear(barbero: Barbero): Promise<void> {
-    const { id: _, emailAsociado, comision, ...publico } = barbero;
-    const correo = emailAsociado.trim().toLowerCase();
+    const correo = barbero.emailAsociado.trim().toLowerCase();
     const ref = doc(this.barberosRef);
     const lote = writeBatch(this.firestore);
-    lote.set(ref, publico);
-    lote.set(doc(this.privadosRef, ref.id), { emailAsociado: correo, comision: comision ?? null });
+    lote.set(ref, publico(barbero));
+    lote.set(doc(this.privadosRef, ref.id), { emailAsociado: correo, comision: barbero.comision ?? null });
     await lote.commit();
     if (correo) {
       await this.usuarios.reasignarRolPorEmail(correo, 'cliente', 'barbero');
@@ -57,11 +65,10 @@ export class BarberosService {
 
   /** Actualiza el perfil. Si cambia el email, mueve el rol 'barbero' a la cuenta nueva. */
   async actualizar(anterior: Barbero, cambios: Barbero): Promise<void> {
-    const { id: _, emailAsociado, comision, ...publico } = cambios;
-    const correo = emailAsociado.trim().toLowerCase();
+    const correo = cambios.emailAsociado.trim().toLowerCase();
     const lote = writeBatch(this.firestore);
-    lote.set(doc(this.barberosRef, anterior.id), publico);
-    lote.set(doc(this.privadosRef, anterior.id), { emailAsociado: correo, comision: comision ?? null });
+    lote.set(doc(this.barberosRef, anterior.id), publico(cambios));
+    lote.set(doc(this.privadosRef, anterior.id), { emailAsociado: correo, comision: cambios.comision ?? null });
     await lote.commit();
     if (correo !== anterior.emailAsociado) {
       if (anterior.emailAsociado) {
@@ -71,6 +78,14 @@ export class BarberosService {
         await this.usuarios.reasignarRolPorEmail(correo, 'cliente', 'barbero');
       }
     }
+  }
+
+  /** Día libre de cada semana y descanso fijo. Lo cambia el propio barbero (o el admin). */
+  guardarDisponibilidad(barberoId: string, disponibilidad: Disponibilidad): Promise<void> {
+    return updateDoc(doc(this.barberosRef, barberoId), {
+      diasLibres: [...(disponibilidad.diasLibres ?? [])].sort(),
+      descanso: disponibilidad.descanso ?? null,
+    });
   }
 
   async eliminar(barbero: Barbero): Promise<void> {
@@ -94,6 +109,19 @@ export class BarberosService {
         .map(b => this.usuarios.reasignarRolPorEmail(b.emailAsociado, 'cliente', 'barbero')),
     );
   }
+}
+
+/** Solo los campos del documento público, sin `undefined` (Firestore no lo acepta) ni datos privados. */
+function publico(barbero: Barbero): Omit<BarberoPublico, 'id'> {
+  return {
+    nombre: barbero.nombre.trim().slice(0, 80),
+    especialidad: (barbero.especialidad ?? '').trim().slice(0, 80),
+    avatar: (barbero.avatar ?? '').trim(),
+    instagram: (barbero.instagram ?? '').trim().replace(/^@/, '').slice(0, 30),
+    orden: Number.isFinite(Number(barbero.orden)) ? Number(barbero.orden) : 0,
+    diasLibres: [...(barbero.diasLibres ?? [])].sort(),
+    descanso: barbero.descanso ?? null,
+  };
 }
 
 /** Junta cada perfil público con sus datos privados (mismo id). Sin datos privados: sin email y sin comisión. */

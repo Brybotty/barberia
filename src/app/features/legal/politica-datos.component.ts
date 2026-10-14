@@ -1,4 +1,5 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
+import { ConsentimientoService } from '../../core/services/consentimiento.service';
 import { CLIENTE } from '../../config/cliente';
 
 /**
@@ -19,8 +20,8 @@ import { CLIENTE } from '../../config/cliente';
   `],
   template: `
     <article class="max-w-3xl mx-auto px-4 sm:px-6 py-14 md:py-20">
-      <p class="text-detalle-400 text-xs font-extrabold uppercase tracking-[0.3em] mb-4">{{ cliente.nombre }}</p>
-      <h1 class="font-display text-3xl sm:text-5xl font-black text-white leading-tight mb-4">Política de tratamiento de datos personales</h1>
+      <p class="rotulo mb-4">{{ cliente.nombre }}</p>
+      <h1 class="font-display text-3xl sm:text-5xl font-black text-white leading-tight mb-4">Política de tratamiento de datos personales y cookies</h1>
       <p class="text-sm text-neutral-500">Vigente desde el {{ cliente.legal.vigenteDesde }}.</p>
 
       <div class="vidrio rounded-2xl p-5 mt-8">
@@ -50,7 +51,7 @@ import { CLIENTE } from '../../config/cliente';
       <ul>
         <li><strong>Identificación y contacto:</strong> nombre, correo electrónico y número de celular (los de la cuenta con la que entras —Google, correo o celular— y los que nos das al reservar).</li>
         <li><strong>Reservas:</strong> servicios reservados, fechas y horas, barbero elegido, valor y estado de cada cita.</li>
-        <li><strong>Navegación:</strong> tu sesión la gestiona Firebase (Google). No usamos cookies de publicidad propias; los videos de Instagram y el mapa de Google que mostramos pueden usar sus propias cookies, según las políticas de esas plataformas.</li>
+        <li><strong>Navegación:</strong> lo necesario para mantener tu sesión y proteger la página de robots. No usamos cookies de publicidad ni de medición (ver el punto 8).</li>
       </ul>
       <p>No recolectamos datos sensibles (salud, origen étnico, creencias, etc.) ni datos de tarjetas o cuentas bancarias.</p>
 
@@ -66,7 +67,7 @@ import { CLIENTE } from '../../config/cliente';
       <h2 id="terceros">4. Con quién los compartimos</h2>
       <p>No vendemos ni alquilamos tus datos. Solo los compartimos con quienes nos ayudan a prestarte el servicio, que los tratan por nuestra cuenta y con medidas de seguridad:</p>
       <ul>
-        <li><strong>Google (Firebase):</strong> aloja la página, las cuentas y la base de datos, y envía los códigos por SMS y los correos para verificar tu cuenta o cambiar tu contraseña. Sus servidores pueden estar fuera de Colombia, lo que implica una transmisión internacional de datos a un proveedor con estándares adecuados de protección.</li>
+        <li><strong>Google (Firebase y reCAPTCHA):</strong> aloja la página, las cuentas, la base de datos y las fotos del equipo; comprueba que quien usa la página no sea un robot; y envía los códigos por SMS y los correos para verificar tu cuenta o cambiar tu contraseña. Sus servidores pueden estar fuera de Colombia, lo que implica una transmisión internacional de datos a un proveedor con estándares adecuados de protección.</li>
         <li><strong>Resend:</strong> envía los correos de confirmación de tus citas (tu nombre, tu correo y los datos de la cita). Sus servidores están fuera de Colombia.</li>
         <li><strong>Autoridades:</strong> cuando una norma o una orden judicial lo exija.</li>
       </ul>
@@ -88,20 +89,35 @@ import { CLIENTE } from '../../config/cliente';
         <li><strong>Consultas</strong> (saber qué datos tenemos y cómo los usamos): te respondemos en máximo <strong>10 días hábiles</strong>. Si necesitamos más tiempo te avisamos, y en ningún caso pasaremos de 5 días hábiles adicionales.</li>
         <li><strong>Reclamos</strong> (corregir, actualizar, borrar o revocar la autorización): incluye tu identificación, la descripción de lo que pides, tu dirección o correo de respuesta y los documentos que quieras hacer valer. Te respondemos en máximo <strong>15 días hábiles</strong>, prorrogables hasta 8 días hábiles más, avisándote el motivo.</li>
       </ul>
-      <p>También puedes actualizar tu celular en cada reserva y cancelar tus citas pendientes desde "Mis reservas".</p>
+      <p>También puedes actualizar tu celular en cada reserva, y cambiar o cancelar tus citas pendientes desde "Mis reservas".</p>
 
       <h2 id="seguridad">7. Seguridad y conservación</h2>
       <p>Tus datos viajan cifrados (HTTPS) y solo acceden a ellos las personas que los necesitan: cada cliente ve únicamente sus propias citas, y el personal accede según su rol.</p>
       <p>Guardamos tus datos mientras tengas una relación con nosotros y durante el tiempo que exijan las normas contables, tributarias y de protección al consumidor. Después los borramos o los anonimizamos.</p>
 
-      <h2 id="autorizacion">8. Autorización</h2>
+      <h2 id="cookies">8. Cookies y contenido de terceros</h2>
+      <p>Una cookie es un dato pequeño que una página guarda en tu navegador. Aquí usamos lo siguiente:</p>
+      <ul>
+        <li><strong>Necesarias (siempre activas):</strong> las que mantienen tu sesión iniciada (Firebase, de Google), las de reCAPTCHA de Google, que protegen la página y el envío de códigos por SMS contra robots, y la que recuerda lo que elegiste en el aviso de cookies. Sin ellas la página no funciona, por eso no piden permiso. Se guardan en tu navegador y no las usamos para publicidad. Tu navegador también conserva una copia de la información pública de la barbería (servicios, equipo y horario) para que la página abra más rápido la próxima vez; esa copia no tiene datos tuyos.</li>
+        <li><strong>Mapa de Google (siempre visible):</strong> el mapa interactivo de cómo llegar, en la página de inicio, lo sirve Google, que puede guardar sus propias cookies y conocer tu dirección IP. Se carga al abrir el inicio, sin pedir permiso.</li>
+        <li><strong>Publicaciones de Instagram (con tu permiso):</strong> los videos de la galería los sirve Instagram (Meta), que puede guardar sus propias cookies y conocer tu dirección IP.</li>
+      </ul>
+      <p>No usamos cookies de publicidad ni herramientas de medición o seguimiento. Los videos de Instagram no se cargan hasta que aceptas o los pides tocando "Ver las publicaciones aquí".</p>
+      <p>
+        Puedes cambiar tu elección cuando quieras:
+        <button type="button" (click)="consentimiento.abrirPreferencias()" class="inline font-bold text-white underline underline-offset-4 hover:text-detalle-200">abrir las preferencias de cookies</button>.
+        También puedes borrar las cookies desde los ajustes de tu navegador; si borras las necesarias, tendrás que iniciar sesión de nuevo.
+      </p>
+
+      <h2 id="autorizacion">9. Autorización</h2>
       <p>Al iniciar sesión o reservar nos autorizas a tratar tus datos según esta política. Guardamos la fecha de esa autorización como prueba. Los menores de edad deben usar el servicio con autorización de su representante legal.</p>
 
-      <h2 id="cambios">9. Cambios a esta política</h2>
+      <h2 id="cambios">10. Cambios a esta política</h2>
       <p>Si cambiamos algo importante, lo publicaremos en esta página con la nueva fecha de vigencia y, si el cambio afecta las finalidades, te pediremos una nueva autorización.</p>
     </article>
   `,
 })
 export class PoliticaDatosComponent {
   readonly cliente = CLIENTE;
+  readonly consentimiento = inject(ConsentimientoService);
 }

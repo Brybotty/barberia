@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Lenguaje visual de El Acicale: negro y blanco como el logo, plata para lo que se toca y un hilo dorado
+  para los detalles. Los títulos van en Cinzel (capitales de inscripción romana), y de ahí salen los dos
+  gestos propios de la página: los números romanos y las "placas" de doble línea, como una pieza grabada.
+*/
+
 body {
   @apply bg-neutral-950 text-neutral-100 antialiased;
 }
@@ -11,20 +17,178 @@ body {
   color: #fff;
 }
 
+/* Foco visible para quien navega con teclado (sin anillo al hacer clic con el mouse). */
+:focus-visible {
+  outline: 2px solid rgb(var(--detalle-400));
+  outline-offset: 3px;
+}
+
+/* Cinzel solo trae los pesos que se cargan: sin negritas ni cursivas falsas del navegador. */
+.font-display {
+  font-synthesis: none;
+}
+
+/* En celular, Safari hace zoom al tocar un campo con letra menor a 16 px: todos los campos van a 16 px
+   (menos los que ya usan letra más grande, como el del código del SMS). */
+@media (max-width: 639px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not(.letra-grande),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Con sesión iniciada, en celulares angostos la barra muestra solo el símbolo y deja espacio a "Mis reservas". */
+@media (max-width: 430px) {
+  .marca-compacta .marca-texto {
+    display: none;
+  }
+}
+
+/* Sin el destello gris al tocar en Android/iOS (los botones ya tienen su propio estado). */
+a, button, [role='button'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
 @layer components {
-  /* Formularios (checkout y panel) */
+  /* ---------- Textos ---------- */
+
+  /* Rótulo de sección: línea dorada + texto. Con data-num lleva delante un número romano: "II — Servicios". */
+  .rotulo {
+    @apply inline-flex items-center gap-3 text-[11px] font-extrabold uppercase tracking-[0.3em] text-detalle-400;
+  }
+  .rotulo::before {
+    content: '';
+    @apply h-px w-8 bg-gradient-to-r from-transparent to-detalle-400/80;
+  }
+  .rotulo[data-num]::before {
+    content: attr(data-num) ' —';
+    @apply h-auto w-auto bg-none font-display text-sm font-bold tracking-[0.12em] text-detalle-300;
+  }
+  /* Rótulo centrado: línea a los dos lados. */
+  .rotulo-centro::after {
+    content: '';
+    @apply h-px w-8 bg-gradient-to-l from-transparent to-detalle-400/80;
+  }
+
+  /* Título de pantalla en los paneles. */
+  .titulo-panel {
+    @apply font-display text-2xl font-black tracking-tight text-white sm:text-3xl;
+  }
+
+  /* ---------- Superficies ---------- */
+
+  /* Tarjeta de panel. */
+  .tarjeta {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03];
+  }
+
+  /* Placa: tarjeta con una segunda línea interior dorada muy tenue, como una pieza grabada.
+     Para lo que merece destacarse (cifras, el comprobante de la reserva), no para todo. */
+  .placa {
+    @apply relative rounded-3xl border border-white/10 bg-white/[0.03];
+  }
+  .placa::after {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    border-radius: calc(1.5rem - 5px);
+    border: 1px solid rgb(var(--detalle-400) / 0.14);
+    pointer-events: none;
+  }
+
+  /* ---------- Botones ---------- */
+
+  .boton {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-6 py-2.5 text-sm font-extrabold
+      transition-all duration-300 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  /* Principal: plata sobre negro. */
+  .boton-acento {
+    @apply boton bg-acento-500 text-sobre-acento shadow-lg shadow-acento-500/15 hover:bg-acento-300 hover:shadow-acento-500/30;
+  }
+  /* Secundario: solo la línea; al pasar el mouse, dorada. */
+  .boton-linea {
+    @apply boton border border-white/15 text-white hover:border-detalle-400/60 hover:bg-white/[0.04];
+  }
+  /* Detalle: línea y texto dorados (Instagram, enlaces destacados). */
+  .boton-oro {
+    @apply boton border border-detalle-400/50 text-detalle-200 hover:border-detalle-300 hover:bg-detalle-500/10 hover:text-white;
+  }
+  /* Acciones que no se pueden deshacer. */
+  .boton-peligro {
+    @apply boton border border-red-500/30 text-red-300 hover:border-red-400/60 hover:bg-red-500/10 hover:text-red-200;
+  }
+  .boton-chico {
+    @apply min-h-10 px-4 py-2 text-xs;
+  }
+  /* Botón de solo ícono (editar, quitar): zona táctil de 40 px. */
+  .boton-icono {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 text-neutral-400
+      transition-colors hover:border-white/25 hover:text-white disabled:opacity-40;
+  }
+  .boton-icono.peligro {
+    @apply hover:border-red-500/40 hover:text-red-300;
+  }
+
+  /* ---------- Etiquetas de estado ---------- */
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider;
+  }
+  .chip-activa { @apply chip border-acento-500/40 bg-acento-500/10 text-acento-300; }
+  .chip-oro { @apply chip border-detalle-400/40 bg-detalle-500/10 text-detalle-200; }
+  .chip-ok { @apply chip border-emerald-500/30 bg-emerald-500/10 text-emerald-300; }
+  .chip-mal { @apply chip border-red-500/30 bg-red-500/10 text-red-300; }
+  .chip-neutro { @apply chip border-white/10 bg-white/[0.03] text-neutral-400; }
+
+  /* ---------- Formularios ---------- */
+
   .etiqueta {
-    @apply block text-[11px] font-extrabold uppercase tracking-widest text-neutral-400 mb-2;
+    @apply mb-2 block text-[11px] font-extrabold uppercase tracking-widest text-neutral-400;
   }
   .campo {
-    @apply w-full bg-neutral-950/70 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-neutral-600
-      focus:outline-none focus:border-acento-500/70 focus:ring-1 focus:ring-acento-500/40 transition-colors;
+    @apply w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-neutral-600
+      transition-colors focus:border-detalle-400/70 focus:outline-none focus:ring-1 focus:ring-detalle-400/30;
   }
   .campo-error {
     @apply border-red-500/60;
   }
   .texto-error {
-    @apply block text-xs font-semibold text-red-400 mt-1.5;
+    @apply mt-1.5 block text-xs font-semibold text-red-400;
+  }
+  .ayuda {
+    @apply mt-1.5 block text-xs leading-relaxed text-neutral-500;
+  }
+
+  /* Interruptor (checkbox con la clase peer dentro de un label). */
+  .interruptor {
+    @apply relative inline-block h-6 w-11 shrink-0 rounded-full bg-neutral-700 transition-colors
+      after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform
+      peer-checked:bg-detalle-500 peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-detalle-300;
+  }
+
+  /* ---------- Tablas de los paneles ---------- */
+
+  .tabla {
+    @apply w-full text-left text-sm;
+  }
+  .tabla thead {
+    @apply border-b border-white/10 text-[11px] uppercase tracking-widest text-neutral-500;
+  }
+  .tabla th {
+    @apply px-5 py-3.5 font-bold;
+  }
+  .tabla td {
+    @apply px-5 py-3.5;
+  }
+  .tabla tbody tr {
+    @apply border-b border-white/5 last:border-0;
+  }
+
+  /* Enlaces de texto con zona táctil cómoda (44 px de alto en celular, sin cambiar cómo se ven). */
+  .enlace-toque {
+    @apply inline-flex min-h-11 items-center gap-2 sm:min-h-0;
   }
 }
 
@@ -47,9 +211,26 @@ body {
     animation: brillo 6s ease-in-out infinite;
   }
 
-  /* Tarjeta translúcida sobre fondo oscuro */
+  /* Tarjeta translúcida sobre fondo oscuro. Sin desenfoque del fondo (backdrop-blur): estas tarjetas van sobre
+     negro liso, donde no se nota, y en celulares modestos cada una frenaba el desplazamiento. Lo que sí flota
+     sobre contenido (encabezado, barras, botones de la galería) lleva su propio backdrop-blur. */
   .vidrio {
-    @apply bg-white/[0.03] border border-white/10 backdrop-blur-xl;
+    @apply bg-white/[0.03] border border-white/10;
+  }
+
+  /* El símbolo de la marca como marca de agua (la imagen la pone cada pantalla con --simbolo). */
+  .marca-de-agua {
+    background-image: var(--simbolo);
+    background-repeat: no-repeat;
+    background-size: contain;
+    background-position: center;
+    opacity: 0.04;
+    pointer-events: none;
+  }
+
+  /* Espacio para la barra de gestos del celular en lo que va pegado abajo. */
+  .pb-seguro {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
 }
 
@@ -70,12 +251,7 @@ body {
   transform: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .revelar { opacity: 1; transform: none; transition: none; }
-  .texto-brillo { animation: none; }
-}
-
-/* Acercamiento lento de la imagen del hero */
+/* Acercamiento lento de una imagen de fondo */
 @keyframes zoom-lento {
   from { transform: scale(1.12); }
   to { transform: scale(1); }
@@ -83,13 +259,9 @@ body {
 .animar-zoom-lento {
   animation: zoom-lento 18s ease-out forwards;
 }
-@media (prefers-reduced-motion: reduce) {
-  .animar-zoom-lento { animation: none; }
-}
 
-/* Formularios del login */
-@layer components {
-  .etiqueta-login { @apply block text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2; }
-  .campo-login { @apply w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-neutral-600 focus:border-acento-500 focus:ring-1 focus:ring-acento-500/40 outline-none transition-colors; }
-  .boton-login { @apply w-full bg-acento-500 hover:bg-acento-400 disabled:opacity-50 text-sobre-acento font-black py-3.5 rounded-xl transition-all active:scale-95; }
+@media (prefers-reduced-motion: reduce) {
+  .revelar { opacity: 1; transform: none; transition: none; }
+  .texto-brillo, .animar-zoom-lento { animation: none; }
+  html { scroll-behavior: auto; }
 }

@@ -1,30 +1,101 @@
 <!doctype html>
-<html lang="es">
+<html lang="es-CO">
 <head>
   <meta charset="utf-8">
   <title>El Acicale · Barbería en Cali</title>
   <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Lo leen Google y las vistas previas de WhatsApp/Instagram/Facebook (no ejecutan el JavaScript de la app). -->
-  <meta name="description" content="Barbería en Calima, Cali. Cortes, barba y color con asesoría personalizada. Reserva tu turno en línea con tu barbero favorito.">
+  <meta name="description" content="Barbería en Calima, Cali. Cortes y barba con asesoría personalizada. Elige tu barbero y reserva tu turno en línea en un minuto.">
   <meta name="theme-color" content="#0a0a0a">
+  <meta name="color-scheme" content="dark">
+  <!-- Al agregarla a la pantalla de inicio (iPhone: Compartir → "Agregar a inicio") se abre como una app,
+       sin las barras del navegador y con la barra de estado en negro. -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="El Acicale">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="El Acicale">
   <meta property="og:title" content="El Acicale · Barbería en Cali">
-  <meta property="og:description" content="¡Energía, experiencia y calidad! Reserva tu turno en línea.">
+  <meta property="og:description" content="¡Energía, experiencia y calidad! Elige tu barbero y reserva tu turno en línea.">
   <meta property="og:locale" content="es_CO">
-  <!-- Cuando haya dominio, agrega la imagen con la dirección completa (las redes no aceptan rutas relativas):
-  <meta property="og:image" content="https://elacicale.com/acicale_logo.jpg">
-  <meta property="og:url" content="https://elacicale.com/"> -->
-  <link rel="icon" type="image/jpeg" href="acicale_logo.jpg">
-  <link rel="apple-touch-icon" href="acicale_logo.jpg">
-  
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script async src="//www.instagram.com/embed.js"></script>
+  <!-- Las redes exigen la dirección completa. Si cambia el dominio, cámbialo aquí, en el bloque de datos del
+       negocio de abajo, en public/sitemap.xml y en public/robots.txt. -->
+  <meta property="og:url" content="https://elacicale.com/">
+  <meta property="og:image" content="https://elacicale.com/og-el-acicale.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Logo de El Acicale, barbería en Cali">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/png" href="favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- Los servidores de los que dependen los datos (la base de datos y la comprobación de que es la página de verdad).
+       Abrir la conexión mientras baja la aplicación ahorra tiempo, sobre todo con datos del celular. -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://firebaseappcheck.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://www.google.com">
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <!-- Lo que se ve mientras baja y arranca la aplicación (Angular lo reemplaza al iniciar). -->
+  <style>
+    .arranque { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; background: #0a0a0a; }
+    .arranque img { width: 4.5rem; height: 4.5rem; border-radius: 9999px; }
+    .arranque i { display: block; width: 7rem; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, #d4b066, transparent) 0 0 / 200% 100%; animation: arranque 1.3s linear infinite; }
+    @keyframes arranque { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .arranque i { animation: none; } }
+  </style>
+
+  <!-- Datos del negocio para Google (búsqueda local y Maps). No es código: es una ficha en formato JSON-LD. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BarberShop",
+    "name": "El Acicale",
+    "description": "Barbería en Calima, Cali. Cortes y barba con asesoría personalizada y reservas en línea.",
+    "url": "https://elacicale.com/",
+    "image": "https://elacicale.com/og-el-acicale.jpg",
+    "logo": "https://elacicale.com/icono-512.png",
+    "telephone": "+573153229528",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "Cl. 68 Nte. #4a - 52, Calima",
+      "addressLocality": "Cali",
+      "addressRegion": "Valle del Cauca",
+      "addressCountry": "CO"
+    },
+    "geo": { "@type": "GeoCoordinates", "latitude": 3.4859679, "longitude": -76.5030280 },
+    "hasMap": "https://www.google.com/maps?cid=1665738208655857030",
+    "openingHoursSpecification": [{
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday"],
+      "opens": "09:20",
+      "closes": "19:40"
+    }, {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": ["Friday", "Saturday"],
+      "opens": "09:00",
+      "closes": "19:40"
+    }],
+    "currenciesAccepted": "COP",
+    "sameAs": ["https://www.instagram.com/el_acicale__"],
+    "potentialAction": {
+      "@type": "ReserveAction",
+      "target": "https://elacicale.com/reservar",
+      "name": "Reservar turno"
+    }
+  }
+  </script>
 </head>
 <body class="font-sans antialiased bg-neutral-950 text-neutral-100 min-h-screen">
-  <app-root></app-root>
+  <app-root><div class="arranque" role="status" aria-label="Cargando El Acicale"><img src="marca.png" alt="" width="72" height="72"><i></i></div></app-root>
+  <noscript>
+    <p style="max-width:32rem;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.6;color:#e5e5e5">
+      Para reservar en El Acicale activa JavaScript en tu navegador, o escríbenos por WhatsApp al 315 322 9528
+      o por Instagram: @el_acicale__.
+      Estamos en Cl. 68 Nte. #4a - 52, Calima, Cali.
+    </p>
+  </noscript>
 </body>
 </html>

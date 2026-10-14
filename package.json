@@ -4,14 +4,14 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "demo": "firebase emulators:exec \"ng serve --configuration emulador --port 4200\" --project demo-acicale --only auth,firestore --ui --import ./demo-datos --export-on-exit ./demo-datos",
+    "demo": "firebase emulators:exec \"ng serve --configuration emulador --port 4200\" --project demo-acicale --only auth,firestore,storage --ui --import ./demo-datos --export-on-exit ./demo-datos",
     "demo:sembrar": "node scripts/sembrar-demo.mjs",
     "start:emulador": "ng serve --configuration emulador",
-    "emuladores": "firebase emulators:start --project demo-acicale --only auth,firestore",
+    "emuladores": "firebase emulators:start --project demo-acicale --only auth,firestore,storage",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "test:reglas": "firebase emulators:exec --only firestore --project demo-reglas \"node pruebas/reglas.mjs\"",
+    "test:reglas": "firebase emulators:exec --only firestore,storage --project demo-reglas \"node pruebas/reglas.mjs && node pruebas/reglas-storage.mjs\"",
     "test:funciones": "npm --prefix functions test"
   },
   "prettier": {
@@ -35,7 +35,9 @@
     "@angular/forms": "^20.2.0",
     "@angular/platform-browser": "^20.2.0",
     "@angular/router": "^20.2.0",
-    "firebase": "^12.19.0",
+    "@fontsource-variable/cinzel": "^5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+    "firebase": "^11.10.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.15.0"
@@ -44,7 +46,7 @@
     "@angular/build": "^20.2.1",
     "@angular/cli": "^20.2.1",
     "@angular/compiler-cli": "^20.2.0",
-    "@firebase/rules-unit-testing": "^5.0.2",
+    "@firebase/rules-unit-testing": "^4.0.1",
     "@types/jasmine": "~5.1.0",
     "@types/node": "^20.17.19",
     "autoprefixer": "^10.6.1",
@@ -55,6 +57,7 @@
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.1.0",
     "postcss": "^8.5.28",
+    "puppeteer-core": "^25.13.0",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.9.2"

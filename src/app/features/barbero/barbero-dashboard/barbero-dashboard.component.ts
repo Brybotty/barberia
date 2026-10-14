@@ -8,7 +8,11 @@ import { BarberosService } from '../../../core/services/barberos.service';
 import { CitasService } from '../../../core/services/citas.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { Barbero } from '../../../core/models/barbero.model';
-import { BARBERO_CUALQUIERA, Cita, EstadoCita, esActiva } from '../../../core/models/cita.model';
+import { BARBERO_CUALQUIERA, Cita, esActiva, etiquetaEstado } from '../../../core/models/cita.model';
+import { ConfirmarService } from '../../../core/services/confirmar.service';
+import { CLIENTE } from '../../../config/cliente';
+import { DisponibilidadComponent } from '../../../shared/components/disponibilidad/disponibilidad.component';
+import { RedSocialComponent } from '../../../shared/components/red-social/red-social.component';
 import { Usuario } from '../../../core/models/usuario.model';
 import { claveDia, compararCitas, diaDeCita, inicioDeCita } from '../../../core/utils/horario';
 import { PERIODOS, Periodo, comisionDe, enPeriodo, rangoDe, resumir, valorCobrado } from '../../../core/utils/ganancias';
@@ -25,17 +29,17 @@ interface Datos {
 @Component({
   selector: 'app-barbero-dashboard',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink, CompletarCitaComponent],
+  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink, CompletarCitaComponent, DisponibilidadComponent, RedSocialComponent],
   template: `
     <div class="min-h-screen bg-neutral-950 text-white">
       <header class="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/90 backdrop-blur-xl">
         <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          <a routerLink="/" class="inline-flex items-center gap-2 text-sm font-bold text-neutral-400 hover:text-white transition-colors">
+          <a routerLink="/" class="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-neutral-400 hover:text-white transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             Volver a la página
           </a>
           @if (datos()?.perfil?.rol === 'admin') {
-            <a routerLink="/admin" class="text-xs font-bold text-acento-500 border border-acento-500/30 hover:bg-acento-500/10 px-3 py-2 rounded-lg transition-colors">Panel de admin</a>
+            <a routerLink="/admin" class="boton-oro boton-chico">Panel de admin</a>
           }
         </div>
       </header>
@@ -58,38 +62,66 @@ interface Datos {
           </div>
         }
 
+        <!-- Secciones del panel -->
+        <div class="mt-8 flex gap-1 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 border-b border-white/10" role="tablist" aria-label="Secciones de mi panel">
+          @for (v of vistas; track v.id) {
+            <button type="button" role="tab" [attr.aria-selected]="vista() === v.id" (click)="vista.set(v.id)"
+                    class="relative shrink-0 px-4 py-3 text-sm font-bold transition-colors"
+                    [ngClass]="vista() === v.id ? 'text-white' : 'text-neutral-500 hover:text-neutral-200'">
+              {{ v.nombre }}
+              @if (vista() === v.id) { <span class="absolute inset-x-3 -bottom-px h-0.5 bg-detalle-400"></span> }
+            </button>
+          }
+        </div>
+
+        @if (vista() === 'disponibilidad') {
+          <section class="mt-8">
+            @if (barbero(); as b) {
+              <app-disponibilidad [barbero]="b" />
+            } @else {
+              <div class="rounded-3xl border border-dashed border-white/10 py-12 px-6 text-center text-neutral-500">
+                La disponibilidad es de cada barbero. Vincula tu cuenta a un perfil en Admin → Staff &amp; Barberos, o cámbiala ahí para cualquiera del equipo.
+              </div>
+            }
+          </section>
+        }
+
+        @if (vista() !== 'disponibilidad') {
         <!-- ============ RESUMEN ============ -->
         <section class="mt-8">
           <div class="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 mb-5">
             @for (p of periodos; track p.valor) {
-              <button (click)="periodo.set(p.valor)" class="shrink-0 px-4 py-2 rounded-full text-sm font-bold border transition-colors"
+              <button (click)="periodo.set(p.valor)" class="shrink-0 min-h-10 px-4 rounded-full text-sm font-bold border transition-colors"
                       [ngClass]="periodo() === p.valor ? 'bg-acento-500 border-acento-500 text-sobre-acento' : 'border-white/10 text-neutral-400 hover:text-white'">{{ p.nombre }}</button>
             }
           </div>
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-            <div class="rounded-2xl border border-white/10 bg-neutral-900 p-4 md:p-5">
+            <div class="placa p-4 md:p-5">
               <p class="text-xs md:text-sm font-bold text-neutral-400">{{ barbero() ? 'Cortes realizados' : 'Cortes (barbería)' }}</p>
-              <p class="text-3xl md:text-4xl font-black mt-1">{{ resumen().cortes }}</p>
+              <p class="font-display text-3xl md:text-4xl font-black mt-1">{{ resumen().cortes }}</p>
               @if (resumen().noAsistio) { <p class="text-xs text-red-300/80 mt-1">{{ resumen().noAsistio }} no asistieron</p> }
             </div>
-            <div class="rounded-2xl border border-white/10 bg-neutral-900 p-4 md:p-5">
+            <div class="placa p-4 md:p-5">
               <p class="text-xs md:text-sm font-bold text-neutral-400">Generado</p>
-              <p class="text-2xl md:text-3xl font-black mt-1 tabular-nums">{{ resumen().generado | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+              <p class="font-display text-2xl md:text-3xl font-black mt-1 tabular-nums">{{ resumen().generado | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
               <p class="text-xs text-neutral-500 mt-1">Total cobrado por los cortes</p>
             </div>
-            <div class="rounded-2xl border border-detalle-400/30 bg-gradient-to-br from-detalle-500/10 to-transparent p-4 md:p-5">
+            <div class="placa !border-detalle-400/30 bg-gradient-to-br from-detalle-500/10 to-transparent p-4 md:p-5">
               <p class="text-xs md:text-sm font-bold text-detalle-300">{{ barbero() ? 'Tu ganancia' : 'Ganancia' }}</p>
-              <p class="text-2xl md:text-3xl font-black mt-1 tabular-nums">{{ resumen().ganancia | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+              <p class="font-display text-2xl md:text-3xl font-black mt-1 tabular-nums">{{ resumen().ganancia | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
               <p class="text-xs text-neutral-500 mt-1">{{ comision() < 100 ? comision() + ' % de lo generado' : 'Todo lo generado' }}</p>
             </div>
-            <div class="rounded-2xl border border-white/10 bg-neutral-900 p-4 md:p-5">
+            <div class="placa p-4 md:p-5">
               <p class="text-xs md:text-sm font-bold text-neutral-400">Próximas citas</p>
-              <p class="text-3xl md:text-4xl font-black mt-1">{{ proximas().length }}</p>
+              <p class="font-display text-3xl md:text-4xl font-black mt-1">{{ proximas().length }}</p>
               <p class="text-xs text-neutral-500 mt-1">Desde mañana</p>
             </div>
           </div>
         </section>
 
+        }
+
+        @if (vista() === 'agenda') {
         <!-- ============ AGENDA DE HOY ============ -->
         <section class="mt-12">
           <h2 class="text-xl font-black mb-5">Tus turnos de hoy <span class="text-neutral-500 font-bold">({{ citasHoy().length }})</span></h2>
@@ -106,22 +138,26 @@ interface Datos {
                        'border-emerald-500/30': cita.estado === 'completada',
                        'border-red-500/20 opacity-60': cita.estado === 'no-asistio' || cita.estado === 'cancelada'
                      }">
-                  <span class="absolute top-4 right-4 text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded"
+                  <span class="absolute top-4 right-4 text-[11px] font-black uppercase tracking-widest px-2 py-1 rounded"
                         [ngClass]="{
                           'bg-white/5 text-neutral-300': esActiva(cita.estado),
                           'bg-red-500/10 text-red-400': cita.estado === 'no-asistio' || cita.estado === 'cancelada',
                           'bg-emerald-500/10 text-emerald-400': cita.estado === 'completada'
-                        }">{{ etiquetaEstado(cita.estado) }}</span>
+                        }">{{ etiqueta(cita) }}</span>
                   <p class="text-2xl font-black">{{ cita.horaStr }}</p>
                   <p class="text-neutral-300 font-bold mt-1">{{ cita.userName }}</p>
                   <p class="text-sm text-neutral-500 mt-3">{{ cita.serviceName }} · <span class="text-neutral-300">{{ valorCobrado(cita) | currency:'COP':'symbol-narrow':'1.0-0' }}</span></p>
-                  @if (cita.phone) {
-                    <a [href]="whatsapp(cita.phone)" target="_blank" rel="noopener" class="inline-block text-xs font-bold text-neutral-400 hover:text-white mt-1">{{ cita.phone }}</a>
+                  @if (cita.phone && esActiva(cita.estado)) {
+                    <a [href]="recordatorio(cita)" target="_blank" rel="noopener" class="enlace-toque mt-2 text-xs font-bold text-emerald-300 hover:text-emerald-200">
+                      <app-red-social red="whatsapp" class="h-4 w-4" /> Recordarle por WhatsApp
+                    </a>
+                  } @else if (cita.phone) {
+                    <p class="mt-2 text-xs text-neutral-500">{{ cita.phone }}</p>
                   }
                   @if (esActiva(cita.estado)) {
                     <div class="flex gap-2 mt-5">
-                      <button (click)="completando.set(cita)" class="flex-1 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-neutral-950 border border-emerald-500/20 font-bold py-2.5 rounded-xl transition-all text-sm">Hecho</button>
-                      <button (click)="marcarNoAsistio(cita)" class="flex-1 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/20 font-bold py-2.5 rounded-xl transition-all text-sm">No asistió</button>
+                      <button (click)="completando.set(cita)" class="flex-1 min-h-11 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-400 hover:text-neutral-950 border border-emerald-500/20 font-bold rounded-xl transition-all text-sm">Hecho</button>
+                      <button (click)="marcarNoAsistio(cita)" class="flex-1 min-h-11 border border-white/15 text-neutral-300 hover:border-red-500/40 hover:text-red-300 font-bold rounded-xl transition-all text-sm">No asistió</button>
                     </div>
                   }
                 </div>
@@ -145,13 +181,22 @@ interface Datos {
                     <p class="font-bold truncate">{{ cita.horaStr }} · {{ cita.userName }}</p>
                     <p class="text-sm text-neutral-500 truncate">{{ cita.serviceName }}</p>
                   </div>
-                  <span class="text-sm font-bold text-neutral-300 shrink-0">{{ cita.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+                  <span class="hidden sm:inline text-sm font-bold text-neutral-300 shrink-0">{{ cita.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+                  @if (cita.phone) {
+                    <a [href]="recordatorio(cita)" target="_blank" rel="noopener" class="boton-icono !text-emerald-300 hover:!border-emerald-500/40"
+                       [attr.aria-label]="'Recordarle la cita a ' + cita.userName + ' por WhatsApp'" title="Recordarle por WhatsApp">
+                      <app-red-social red="whatsapp" class="h-4 w-4" />
+                    </a>
+                  }
                 </li>
               }
             </ul>
           </section>
         }
 
+        }
+
+        @if (vista() === 'cortes') {
         <!-- ============ HISTORIAL DE CORTES ============ -->
         <section class="mt-12">
           <div class="flex items-end justify-between gap-4 mb-5">
@@ -182,6 +227,7 @@ interface Datos {
             </div>
           }
         </section>
+        }
       </main>
 
       @if (completando(); as cita) {
@@ -195,6 +241,14 @@ export class BarberoDashboardComponent {
   private barberosService = inject(BarberosService);
   private citasService = inject(CitasService);
   private notificaciones = inject(NotificationService);
+  private confirmar = inject(ConfirmarService);
+
+  readonly vistas = [
+    { id: 'agenda', nombre: 'Agenda' },
+    { id: 'disponibilidad', nombre: 'Mi disponibilidad' },
+    { id: 'cortes', nombre: 'Cortes y ganancias' },
+  ] as const;
+  readonly vista = signal<'agenda' | 'disponibilidad' | 'cortes'>('agenda');
 
   readonly esActiva = esActiva;
   readonly valorCobrado = valorCobrado;
@@ -256,7 +310,8 @@ export class BarberoDashboardComponent {
    */
   private cargar(perfil: Usuario | null): Observable<Datos> {
     if (!perfil) return of({ perfil: null, barberos: [], citas: [] });
-    return this.barberosService.delEmail(perfil.email ?? '').pipe(
+    // Las cuentas de celular no tienen correo: no pueden estar enlazadas a un perfil de barbero.
+    return (perfil.email ? this.barberosService.delEmail(perfil.email) : of<Barbero[]>([])).pipe(
       switchMap(barberos => {
         let citas$: Observable<Cita[]>;
         if (barberos.length > 0) citas$ = this.citasService.deBarberos([...barberos.map(b => b.id!), BARBERO_CUALQUIERA]);
@@ -267,16 +322,23 @@ export class BarberoDashboardComponent {
     );
   }
 
-  whatsapp(telefono: string): string {
-    return enlaceWhatsApp(telefono);
+  /** WhatsApp del cliente con el recordatorio ya escrito: el barbero solo toca "enviar". No gasta correos. */
+  recordatorio(cita: Cita): string {
+    const dia = diaDeCita(cita);
+    const manana = claveDia(new Date(this.hoy.getFullYear(), this.hoy.getMonth(), this.hoy.getDate() + 1));
+    const cuando = dia === this.diaHoy ? 'hoy' : dia === manana ? 'mañana'
+      : `el ${inicioDeCita(cita).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}`;
+    const nombre = cita.userName.trim().split(/\s+/)[0] ?? '';
+    return enlaceWhatsApp(cita.phone, `Hola ${nombre}, te recordamos tu cita en ${CLIENTE.nombre} ${cuando} a las ${cita.horaStr} (${cita.serviceName}). ¡Te esperamos! `
+      + `Si no puedes venir, cámbiala o cancélala aquí: ${location.origin}/mis-citas`);
   }
 
   inicio(cita: Cita): Date {
     return inicioDeCita(cita);
   }
 
-  etiquetaEstado(estado: EstadoCita): string {
-    return { pendiente: 'Pendiente', confirmada: 'Confirmada', completada: 'Hecho', 'no-asistio': 'No asistió', cancelada: 'Cancelada' }[estado];
+  etiqueta(cita: Cita): string {
+    return etiquetaEstado(cita, 'equipo');
   }
 
   async marcarNoAsistio(cita: Cita) {
@@ -284,7 +346,12 @@ export class BarberoDashboardComponent {
       this.notificaciones.error('Aún no es la hora', `No puedes marcar "No asistió" antes de la hora acordada (${cita.horaStr}).`);
       return;
     }
-    if (!confirm('¿Marcar que el cliente no asistió?')) return;
+    const seguro = await this.confirmar.preguntar({
+      titulo: '¿El cliente no asistió?',
+      texto: `${cita.userName}, ${cita.horaStr}. La cita queda marcada como "No asistió".`,
+      aceptar: 'Sí, no asistió',
+    });
+    if (!seguro) return;
     try {
       await this.citasService.cambiarEstado(cita, 'no-asistio');
     } catch (e) {

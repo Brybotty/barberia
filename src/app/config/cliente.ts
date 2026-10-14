@@ -2,8 +2,7 @@ import { ConfigCliente } from './cliente.model';
 import { ACICALE } from './clientes/acicale';
 
 /**
- * Cliente activo de este build. Para cambiar de barbería, cambia esta línea
- * (p. ej. `import { BARBERCALI } from './clientes/barbercali'` y `CLIENTE = BARBERCALI`).
+ * Cliente activo de este build. Para otra barbería, crea su archivo en ./clientes y cambia esta línea.
  */
 export const CLIENTE: ConfigCliente = ACICALE;
 
@@ -26,10 +25,5 @@ export function aplicarCliente(cliente: ConfigCliente = CLIENTE): void {
     document.head.appendChild(fuente);
   }
 
-  document.title = cliente.nombre;
-  const icono = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (icono) {
-    icono.href = cliente.favicon;
-    icono.type = cliente.favicon.endsWith('.ico') ? 'image/x-icon' : 'image/jpeg';
-  }
+  // El título de la pestaña lo pone cada ruta (TituloStrategy) y el favicon está en src/index.html.
 }

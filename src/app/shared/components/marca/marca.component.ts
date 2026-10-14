@@ -8,9 +8,9 @@ import { CLIENTE } from '../../../config/cliente';
   template: `
     <span class="inline-flex items-center gap-3 align-middle">
       @if (cliente.logo && conLogo()) {
-        <img [src]="cliente.logo" [alt]="cliente.nombre" class="rounded-xl object-cover shrink-0 shadow-sm" [class]="claseLogo()">
+        <img [src]="cliente.logo" alt="" width="96" height="96" class="rounded-xl object-cover shrink-0 ring-1 ring-white/10" [class]="claseLogo()">
       }
-      <span class="font-display font-black tracking-tight">{{ cliente.marca.texto }}<span class="text-acento-500">{{ cliente.marca.destacado }}</span></span>
+      <span class="marca-texto font-display font-bold tracking-[0.08em]">{{ cliente.marca.texto }}<span class="text-acento-500">{{ cliente.marca.destacado }}</span></span>
     </span>
   `
 })

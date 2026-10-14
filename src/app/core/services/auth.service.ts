@@ -1,13 +1,43 @@
 import { Injectable, inject, NgZone } from '@angular/core';
 import {
-  Auth, ConfirmationResult, RecaptchaVerifier, User, authState, createUserWithEmailAndPassword, getAdditionalUserInfo,
-  GoogleAuthProvider, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPhoneNumber,
-  signInWithPopup, signOut, updateProfile,
+  Auth, ConfirmationResult, PopupRedirectResolver, RecaptchaVerifier, User, authState, browserPopupRedirectResolver,
+  createUserWithEmailAndPassword, getAdditionalUserInfo, GoogleAuthProvider, sendEmailVerification, sendPasswordResetEmail,
+  signInWithEmailAndPassword, signInWithPhoneNumber, signInWithPopup, signOut, updateProfile,
 } from '@angular/fire/auth';
 import { Firestore, doc, onSnapshot, setDoc, getDoc } from '@angular/fire/firestore';
-import { Observable, of, shareReplay, switchMap } from 'rxjs';
+import { Observable, distinctUntilChanged, of, shareReplay, switchMap } from 'rxjs';
 import { Usuario } from '../models/usuario.model';
 import { CLIENTE } from '../../config/cliente';
+
+/** Lo que se usa de la pieza de Firebase que abre la ventana de Google (son nombres internos del SDK). */
+interface VentanasDeFirebase {
+  _initialize?(auth: Auth): Promise<unknown>;
+}
+let ventanas: VentanasDeFirebase | undefined;
+
+/**
+ * La pieza de Firebase que abre la ventana de Google, con un cambio: no se prepara sola al arrancar la página.
+ *
+ * La original, en celulares y en Safari, baja un marco oculto de Google durante el arranque (para que luego la
+ * ventana abra sin que el navegador la bloquee) y Firebase espera a que termine antes de decir si hay sesión.
+ * Mientras tanto Firestore no pide nada: la página se quedaba entre uno y tres segundos sin servicios ni horarios en
+ * los celulares, aunque el visitante nunca fuera a entrar con Google. Aquí eso se hace cuando alguien de verdad
+ * va a entrar (AuthService.prepararGoogle).
+ *
+ * `_shouldInitProactively` e `_initialize` son internos del SDK. Si una versión futura les cambia el nombre, esto
+ * deja de tener efecto y todo vuelve a funcionar como con getAuth(): más lento al arrancar, pero sin romperse.
+ */
+class VentanasSinPrepararAlArrancar extends (browserPopupRedirectResolver as unknown as new () => object) {
+  constructor() {
+    super();
+    ventanas = this as VentanasDeFirebase;
+  }
+
+  get _shouldInitProactively(): boolean {
+    return false;
+  }
+}
+export const resolverDeVentanas = VentanasSinPrepararAlArrancar as unknown as PopupRedirectResolver;
 
 /** Resultado de entrar con el celular: si la cuenta es nueva hay que pedir el nombre. */
 export interface IngresoCelular {
@@ -32,7 +62,10 @@ export class AuthService {
       const userRef = doc(this.firestore, `usuarios/${user.uid}`);
 
       return new Observable<Usuario | null>(subscriber =>
-        onSnapshot(userRef, (snapshot) => {
+        onSnapshot(userRef, { includeMetadataChanges: true }, (snapshot) => {
+          // Solo el perfil que ya confirmó el servidor: en el primer inicio de sesión la copia local
+          // llega antes, y las consultas del staff (cuyas reglas leen el rol) fallarían por un instante.
+          if (snapshot.metadata.hasPendingWrites) return;
           this.ngZone.run(() => subscriber.next(snapshot.exists() ? snapshot.data() as Usuario : null));
         }, (error) => {
           this.ngZone.run(() => {
@@ -42,6 +75,8 @@ export class AuthService {
         })
       );
     }),
+    // Con includeMetadataChanges llegan repeticiones sin cambios (caché → servidor): se descartan.
+    distinctUntilChanged((a, b) => JSON.stringify(a) === JSON.stringify(b)),
     shareReplay({ bufferSize: 1, refCount: true })
   );
 
@@ -51,6 +86,18 @@ export class AuthService {
   }
 
   // ---------- Formas de entrar (todas devuelven el rol para llevar a cada quien a su panel) ----------
+
+  /**
+   * Deja lista la ventana de Google antes de que la pidan. Safari y los navegadores del celular solo dejan abrir
+   * una ventana justo en el toque; si en ese momento hubiera que bajar primero el marco de Google, la bloquearían.
+   * Se llama cuando el visitante muestra que va a entrar: al abrir /login, al tocar "Ingresar" o al llegar al
+   * paso de elegir hora de una reserva sin sesión.
+   */
+  prepararGoogle(): void {
+    try {
+      ventanas?._initialize?.(this.auth)?.catch(() => { /* sin red: se intentará de nuevo al tocar el botón */ });
+    } catch { /* el SDK cambió por dentro: la ventana se prepara al tocar el botón */ }
+  }
 
   async loginConGoogle(): Promise<Usuario['rol']> {
     const { user } = await signInWithPopup(this.auth, new GoogleAuthProvider());
@@ -128,7 +175,7 @@ export class AuthService {
 
     const datos: Partial<Usuario> = {
       uid: user.uid,
-      nombre: user.displayName || docSnap.get('nombre') || 'Cliente',
+      nombre: (user.displayName || docSnap.get('nombre') || 'Cliente').slice(0, 120),
     };
     // Las cuentas de celular no tienen correo: el perfil solo lleva el de la cuenta (las reglas lo exigen así).
     if (email) datos.email = email;

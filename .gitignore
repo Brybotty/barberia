@@ -44,3 +44,8 @@ Thumbs.db
 # Firebase
 *-debug.log
 .firebase/
+
+# Pruebas de punta a punta (capturas, log de los emuladores y build temporal)
+/pruebas/punta-a-punta/capturas/
+/pruebas/punta-a-punta/emuladores.log
+/src/environments/environment.verif.ts
