@@ -1,5 +1,5 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
-import { Servicio, iconoDe } from '../../../core/models/servicio.model';
+import { Servicio, iconoDe, preciosPropios } from '../../../core/models/servicio.model';
 import { IconoComponent } from '../icono/icono.component';
 import { CurrencyPipe } from '@angular/common';
 import { DuracionPipe } from '../../pipes/duracion.pipe';
@@ -29,6 +29,12 @@ import { DuracionPipe } from '../../pipes/duracion.pipe';
         <div>
           <span class="block text-[11px] font-extrabold uppercase tracking-widest text-neutral-500 mb-0.5">{{ servicio.precioDesde ? 'Desde' : 'Precio' }}</span>
           <span class="font-display text-2xl font-black text-white">{{ servicio.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+          @if (soloCon) {
+            <span class="mt-0.5 block text-xs font-bold text-detalle-200">Solo con {{ soloCon }}</span>
+          }
+          @for (p of preciosPropios; track p.barbero.id) {
+            <span class="mt-0.5 block text-xs font-bold text-detalle-200">Con {{ p.barbero.nombre }}: {{ p.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+          }
         </div>
         <span class="flex items-center gap-1 text-sm font-bold text-detalle-200 group-hover:gap-2 transition-all">
           Reservar
@@ -40,10 +46,20 @@ import { DuracionPipe } from '../../pipes/duracion.pipe';
 })
 export class ServiceCardComponent {
   @Input({ required: true }) servicio!: Servicio;
+  /** El equipo: para decir qué barbero cobra otro precio, o de quién es un servicio propio. */
+  @Input() barberos: { id?: string; nombre: string }[] = [];
 
   @Output() onSelect = new EventEmitter<Servicio>();
 
   get icono() {
     return iconoDe(this.servicio);
+  }
+
+  get preciosPropios() {
+    return preciosPropios(this.servicio, this.barberos);
+  }
+
+  get soloCon(): string {
+    return this.servicio.soloDe ? this.barberos.find(b => b.id === this.servicio.soloDe)?.nombre ?? '' : '';
   }
 }

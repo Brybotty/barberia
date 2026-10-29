@@ -1,5 +1,5 @@
 import { Injectable, NgZone, inject } from '@angular/core';
-import { Firestore, addDoc, collection, deleteDoc, doc, updateDoc } from '@angular/fire/firestore';
+import { Firestore, addDoc, collection, deleteDoc, deleteField, doc, updateDoc } from '@angular/fire/firestore';
 import { Observable, map, shareReplay } from 'rxjs';
 import { Servicio } from '../models/servicio.model';
 import { conCopiaLocal, escuchar } from '../utils/firestore';
@@ -39,12 +39,22 @@ export class ServiciosService {
     );
   }
 
+  /**
+   * Crea o edita un servicio. Los precios propios vacíos y el "solo de" vacío se quitan del documento (Firestore no
+   * acepta campos `undefined`, y así un servicio de todos queda como siempre).
+   */
   async guardar(servicio: Servicio): Promise<void> {
-    const { id, ...datos } = servicio;
+    const { id, precios, soloDe, ...datos } = servicio;
+    const propios = Object.fromEntries(Object.entries(precios ?? {}).filter(([, precio]) => Number.isInteger(precio) && precio > 0));
+    const conPrecios = Object.keys(propios).length > 0 && !soloDe;
     if (id) {
-      await updateDoc(doc(this.firestore, `servicios/${id}`), { ...datos });
+      await updateDoc(doc(this.firestore, `servicios/${id}`), {
+        ...datos,
+        precios: conPrecios ? propios : deleteField(),
+        soloDe: soloDe || deleteField(),
+      });
     } else {
-      await addDoc(this.serviciosRef, datos);
+      await addDoc(this.serviciosRef, { ...datos, ...(conPrecios ? { precios: propios } : {}), ...(soloDe ? { soloDe } : {}) });
     }
   }
 

@@ -21,8 +21,11 @@
       <div class="h-px w-28 my-6 sm:my-8 bg-gradient-to-r from-transparent via-detalle-400 to-transparent lg:from-detalle-400 lg:via-detalle-400/50 animate-in fade-in duration-1000 delay-300 fill-mode-both"></div>
 
       @if (cliente.hero.lema) {
-        <!-- Con logo, el nombre ya está en la imagen: la frase es el titular de la página -->
+        <!-- Con logo, el nombre ya está en la imagen: el titular dice qué es y dónde queda (lo que se busca en Google), y la frase de la casa -->
         <h1 class="font-display text-3xl sm:text-4xl xl:text-5xl font-black text-white leading-tight tracking-tight max-w-xl text-balance animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-300 fill-mode-both">
+          @if (cliente.ubicacion) {
+            <span class="mb-3 block font-sans text-xs font-extrabold uppercase tracking-[0.3em] text-detalle-300 sm:text-sm">{{ cliente.descripcion }} en {{ cliente.ubicacion.zona }} </span>
+          }
           {{ cliente.hero.lema }}
         </h1>
       } @else {
@@ -41,8 +44,9 @@
       </div>
 
       <!-- ¿Está abierto ahora? (se actualiza solo) -->
+      <!-- Al compilar no se sabe la hora de quien mira: se guarda el espacio y lo llena el navegador -->
       <p class="mt-7 inline-flex items-center gap-2.5 rounded-full border px-4 py-2 text-sm font-bold animate-in fade-in duration-1000 delay-700 fill-mode-both"
-         [ngClass]="estado().abierto ? 'border-emerald-500/30 bg-emerald-500/[0.07] text-emerald-200' : 'border-white/10 bg-white/[0.03] text-neutral-300'" aria-live="polite">
+         [class.invisible]="!navegador" [ngClass]="estado().abierto ? 'border-emerald-500/30 bg-emerald-500/[0.07] text-emerald-200' : 'border-white/10 bg-white/[0.03] text-neutral-300'" aria-live="polite">
         <span class="relative flex h-2.5 w-2.5">
           @if (estado().abierto) { <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:hidden"></span> }
           <span class="relative inline-flex h-2.5 w-2.5 rounded-full" [ngClass]="estado().abierto ? 'bg-emerald-400' : 'bg-neutral-500'"></span>
@@ -119,7 +123,7 @@
           } @else {
             @for (servicio of destacados; track servicio.id; let i = $index) {
               <div appRevelar [retraso]="i * 100">
-                <app-service-card [servicio]="servicio" (onSelect)="irAReservar($event)"></app-service-card>
+                <app-service-card [servicio]="servicio" [barberos]="equipo() ?? []" (onSelect)="irAReservar($event)"></app-service-card>
               </div>
             }
           }
@@ -244,6 +248,23 @@
   </section>
 }
 
+<!-- ============ QUIÉNES SOMOS: qué es y dónde queda, en texto (para quien llega y para Google) ============ -->
+@if (cliente.presentacion; as presentacion) {
+  <section class="bg-neutral-950 px-4 pt-20 sm:pt-24" aria-labelledby="presentacion-titulo">
+    <div class="mx-auto max-w-3xl text-center" appRevelar>
+      <p class="rotulo rotulo-centro mb-4">{{ cliente.nombre }}</p>
+      <h2 id="presentacion-titulo" class="font-display text-3xl font-black tracking-tight text-white text-balance md:text-5xl">{{ presentacion.titulo }}</h2>
+      @for (parrafo of presentacion.parrafos; track $index; let primero = $first) {
+        <p class="mt-5 leading-relaxed" [ngClass]="primero ? 'text-lg text-neutral-300' : 'text-neutral-400'">{{ parrafo }}</p>
+      }
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a routerLink="/reservar" class="boton-acento">Reservar turno</a>
+        <a routerLink="/servicios" class="boton-linea">Ver precios</a>
+      </div>
+    </div>
+  </section>
+}
+
 <!-- ============ VISÍTANOS ============ -->
 <section id="contacto" class="bg-neutral-950 py-20 sm:py-24 px-4 scroll-mt-20">
   <div class="max-w-7xl mx-auto">
@@ -261,15 +282,15 @@
           </div>
           <div>
             <h3 class="text-lg font-bold text-white leading-tight">Horarios</h3>
-            <p class="text-xs font-semibold" [ngClass]="estado().abierto ? 'text-emerald-300' : 'text-neutral-500'">{{ estado().texto }}</p>
+            <p class="text-xs font-semibold" [class.invisible]="!navegador" [ngClass]="estado().abierto ? 'text-emerald-300' : 'text-neutral-500'">{{ estado().texto }}</p>
           </div>
         </div>
         <ul class="space-y-3">
           @for (fila of horario(); track fila.dias) {
             <li class="flex items-center justify-between border-b border-white/5 pb-3 last:border-0">
-              <span class="font-medium" [ngClass]="fila.incluye.includes(estado().dia) ? 'text-white' : 'text-neutral-400'">
+              <span class="font-medium" [ngClass]="navegador && fila.incluye.includes(estado().dia) ? 'text-white' : 'text-neutral-400'">
                 {{ fila.dias }}
-                @if (fila.incluye.includes(estado().dia)) { <span class="chip-oro ml-2 !py-0.5">Hoy</span> }
+                @if (navegador && fila.incluye.includes(estado().dia)) { <span class="chip-oro ml-2 !py-0.5">Hoy</span> }
               </span>
               <span class="font-bold" [ngClass]="fila.abierto ? 'text-white' : 'text-neutral-500'">{{ fila.horas }}</span>
             </li>

@@ -281,7 +281,47 @@ async function revisar(pagina, nombre) {
     await pausa(700);
     await revisar(a.pagina, `admin, ${pestana.toLowerCase()}`);
     if (archivo) await captura(a.pagina, archivo, false);
+    if (pestana === 'Citas') {
+      // La lista con sus filtros: barbero, días y buscador.
+      await clic(a.pagina, 'Lista', '[aria-label="Cómo ver las citas"] button');
+      await clic(a.pagina, 'Trip', '[aria-label="Ver las citas de"] button');
+      await clic(a.pagina, 'Pasadas', '[aria-label="Qué días ver"] button');
+      await pausa(500);
+      await revisar(a.pagina, 'admin, lista de citas filtrada por barbero y días');
+      comprobar('en la lista del celular, cada día lleva su título con cuántas citas tiene', await a.pagina.evaluate(() =>
+        [...document.querySelectorAll('section h3')].filter(h => h.getClientRects().length).every(h => /\d+ citas?$/.test(h.textContent.trim()))
+        && [...document.querySelectorAll('section h3')].some(h => h.getClientRects().length)));
+      await captura(a.pagina, '63b-movil-admin-lista', false);
+      comprobar('cada cliente de la lista lleva su carita de asistencia', await a.pagina.evaluate(() => {
+        const tarjetas = [...document.querySelectorAll('li.tarjeta')].filter(li => li.getClientRects().length);
+        return tarjetas.length > 0 && tarjetas.every(li => li.querySelector('app-carita[data-nivel]'));
+      }));
+      await clic(a.pagina, '¿Qué dicen las caritas?', 'summary');
+      await pausa(300);
+      await revisar(a.pagina, 'admin, leyenda de las caritas');
+      await captura(a.pagina, '63c-movil-caritas', false);
+      await clic(a.pagina, '¿Qué dicen las caritas?', 'summary');
+      await clic(a.pagina, 'Todos', '[aria-label="Ver las citas de"] button');
+      await clic(a.pagina, 'Próximas', '[aria-label="Qué días ver"] button');
+      await clic(a.pagina, 'Calendario', '[aria-label="Cómo ver las citas"] button');
+      // La ventana para dejar un día solo para algunos servicios (desde la agenda del día).
+      await pausa(400);
+      await clic(a.pagina, 'Limitar', '[data-servicios-del-dia] button');
+      await esperarTexto(a.pagina, '¿Qué se reserva este día?');
+      await clic(a.pagina, 'Solo algunos', '[role="dialog"] button');
+      await pausa(400);
+      await revisar(a.pagina, 'ventana "¿Qué se reserva este día?"');
+      await captura(a.pagina, '63d-movil-servicios-del-dia', false);
+      await clic(a.pagina, 'Cancelar', '[role="dialog"] button');
+    }
   }
+  // La multa por no asistir (quedó en Ajustes): activa, con su valor y cómo se pone. Sin guardar.
+  await clic(a.pagina, 'Sin multa', '[data-ajuste-multa] label');
+  await pausa(300);
+  await a.pagina.$eval('[data-ajuste-multa]', el => el.scrollIntoView({ block: 'center' }));
+  await revisar(a.pagina, 'admin, ajustes con la multa activa');
+  await captura(a.pagina, '66j-movil-ajustes-multa', false);
+  await clic(a.pagina, 'Activa', '[data-ajuste-multa] label');
   // Agenda por periodos (quedó en Ajustes): la sección con sus fechas y el aviso que deja en el Inicio.
   await clic(a.pagina, 'Por periodos', 'button[role="radio"]');
   await esperarTexto(a.pagina, 'Tus clientes pueden reservar hasta el');
@@ -351,7 +391,39 @@ async function revisar(pagina, nombre) {
   await pausa(1000);
   await revisar(b.pagina, 'barbero, agenda');
   await captura(b.pagina, '67-movil-barbero', true);
-  await clic(b.pagina, 'Mi disponibilidad', 'button[role="tab"]');
+  const NAV_BARBERO = 'nav[aria-label="Secciones de mi panel"]';
+  const barraBarbero = await b.pagina.evaluate(sel => {
+    const nav = [...document.querySelectorAll(sel)].find(n => n.getClientRects().length && getComputedStyle(n).position === 'fixed');
+    if (!nav) return null;
+    const r = nav.getBoundingClientRect();
+    return { textos: [...nav.querySelectorAll('button')].map(x => x.textContent.trim()), abajo: Math.abs(r.bottom - document.documentElement.clientHeight) < 2 };
+  }, NAV_BARBERO);
+  comprobar('el barbero tiene su barra de botones abajo: Agenda, Citas, Recurrentes, Horario y Ganancias',
+    !!barraBarbero && barraBarbero.abajo && barraBarbero.textos.join() === 'Agenda,Citas,Recurrentes,Horario,Ganancias', JSON.stringify(barraBarbero));
+  // Sus citas en calendario y en lista, como en el panel del admin.
+  await clic(b.pagina, 'Citas', `${NAV_BARBERO} button`);
+  await esperarTexto(b.pagina, 'Tus citas');
+  await esperarTexto(b.pagina, 'Agenda del día');
+  await pausa(800);
+  await revisar(b.pagina, 'barbero, calendario de sus citas');
+  await captura(b.pagina, '67c-movil-barbero-calendario', true);
+  await clic(b.pagina, 'Lista', '[aria-label="Cómo ver las citas"] button');
+  await pausa(600);
+  await revisar(b.pagina, 'barbero, lista de sus citas');
+  await captura(b.pagina, '67d-movil-barbero-lista', true);
+  await clic(b.pagina, 'Recurrentes', `${NAV_BARBERO} button`);
+  await esperarTexto(b.pagina, 'Mis agendas recurrentes');
+  await revisar(b.pagina, 'barbero, agendas recurrentes');
+  const fabBarbero = await b.pagina.evaluate(sel => {
+    const boton = document.querySelector('button[aria-label="Nueva agenda recurrente"]');
+    const barra = [...document.querySelectorAll(sel)].find(n => getComputedStyle(n).position === 'fixed');
+    if (!boton || !barra) return null;
+    const r = boton.getBoundingClientRect();
+    return { sobreLaBarra: r.bottom <= barra.getBoundingClientRect().top + 1, alto: Math.round(r.height) };
+  }, NAV_BARBERO);
+  comprobar('y el mismo botón flotante de "Nueva agenda recurrente", sobre la barra', !!fabBarbero && fabBarbero.sobreLaBarra && fabBarbero.alto >= 48, JSON.stringify(fabBarbero));
+  await captura(b.pagina, '67b-movil-barbero-recurrentes', true);
+  await clic(b.pagina, 'Horario', `${NAV_BARBERO} button`);
   await esperarTexto(b.pagina, 'Cada semana');
   await revisar(b.pagina, 'barbero, disponibilidad');
   await captura(b.pagina, '68-movil-barbero-disponibilidad', true);

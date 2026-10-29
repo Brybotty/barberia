@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { enNavegador } from '../utils/plataforma';
 
 /** El aviso de instalación que entrega el navegador (aún no está en los tipos de TypeScript). */
 interface AvisoDeInstalacion extends Event {
@@ -27,6 +28,7 @@ export function detectarDispositivo(agente: string, toques = 0, plataforma = '')
 
 /** ¿Está abierta desde su ícono, como una app (sin las barras del navegador)? */
 function abiertaComoApp(): boolean {
+  if (!enNavegador) return false;
   return matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 }
 
@@ -46,13 +48,17 @@ function abiertaComoApp(): boolean {
 export class InstalacionService {
   private aviso: AvisoDeInstalacion | null = null;
 
-  readonly dispositivo = detectarDispositivo(navigator.userAgent, navigator.maxTouchPoints, navigator.platform);
+  // Al compilar no hay celular: se arma como computador y el navegador lo corrige al abrir.
+  readonly dispositivo = enNavegador
+    ? detectarDispositivo(navigator.userAgent, navigator.maxTouchPoints, navigator.platform)
+    : detectarDispositivo('');
   /** El navegador ya ofreció instalarla: se puede con un toque. */
   readonly conUnToque = signal(false);
   /** Ya está abierta como app, o se acaba de instalar. */
   readonly instalada = signal(abiertaComoApp());
 
   constructor() {
+    if (!enNavegador) return;
     addEventListener('beforeinstallprompt', evento => {
       // Se guarda para abrirlo cuando el visitante toque "Instalar" (el navegador solo lo abre con un toque).
       evento.preventDefault();

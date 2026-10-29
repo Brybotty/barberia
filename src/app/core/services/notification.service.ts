@@ -1,10 +1,6 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { EMPTY, Observable, map, of, switchMap } from 'rxjs';
+import { Injectable, Injector, inject, signal } from '@angular/core';
+import { EMPTY, from, switchMap } from 'rxjs';
 import { AuthService } from './auth.service';
-import { BarberosService } from './barberos.service';
-import { CitasService } from './citas.service';
-import { BARBERO_CUALQUIERA, Cita } from '../models/cita.model';
-import { Usuario } from '../models/usuario.model';
 
 export type TipoToast = 'info' | 'exito' | 'error';
 
@@ -19,8 +15,7 @@ export interface Toast {
 })
 export class NotificationService {
   private auth = inject(AuthService);
-  private citas = inject(CitasService);
-  private barberos = inject(BarberosService);
+  private injector = inject(Injector);
 
   toastMessage = signal<Toast | null>(null);
 
@@ -28,9 +23,12 @@ export class NotificationService {
   private notificadas = new Set<string>();
 
   constructor() {
-    // Admin y barberos reciben un aviso por cada reserva creada mientras tienen la app abierta.
+    // Admin y barberos reciben un aviso por cada reserva creada mientras tienen la app abierta. Lo que escucha las
+    // reservas se descarga solo para el equipo (un visitante no lo necesita).
     this.auth.currentUserProfile$.pipe(
-      switchMap(perfil => this.citasNuevasPara(perfil)),
+      switchMap(perfil => (perfil && (perfil.rol === 'admin' || perfil.rol === 'barbero')
+        ? from(import('./avisos-del-equipo')).pipe(switchMap(m => m.citasNuevasPara(this.injector, perfil)))
+        : EMPTY)),
     ).subscribe({
       next: citas => {
         for (const cita of citas) {
@@ -65,23 +63,6 @@ export class NotificationService {
   cerrarToast() {
     clearTimeout(this.timeoutId);
     this.toastMessage.set(null);
-  }
-
-  private citasNuevasPara(perfil: Usuario | null): Observable<Cita[]> {
-    if (!perfil || (perfil.rol !== 'admin' && perfil.rol !== 'barbero')) return EMPTY;
-
-    // Los turnos de una agenda recurrente los aparta el sistema de a varios (uno por semana): no son reservas nuevas
-    // y, si avisaran, sonarían nueve veces seguidas.
-    const nuevas$ = this.citas.creadasDesde(new Date().toISOString()).pipe(
-      map(citas => citas.filter(c => !c.recurrenciaId)),
-    );
-    if (perfil.rol === 'admin') return nuevas$;
-
-    // Las cuentas de celular no tienen correo: no pueden estar enlazadas a un perfil de barbero.
-    return (perfil.email ? this.barberos.delEmail(perfil.email) : of([])).pipe(
-      map(perfiles => [...perfiles.map(b => b.id!), BARBERO_CUALQUIERA]),
-      switchMap(ids => nuevas$.pipe(map(citas => citas.filter(c => ids.includes(c.barberoId))))),
-    );
   }
 
   /** Dos notas cortas generadas en el navegador (sin descargar audio de otro sitio). */

@@ -29,6 +29,8 @@ export interface Cita {
   reemplazaA?: string;
   /** Al reagendar: la cita nueva que reemplazó a esta (queda cancelada). */
   reemplazadaPor?: string;
+  /** 'barbero': se la agendó el propio barbero desde su panel (no se le avisa a él de su propia cita). */
+  origen?: string;
   /** Turno de una agenda recurrente (lo apartó el sistema): no se avisa por correo. */
   recurrenciaId?: string;
   frecuencia?: 'semanal' | 'quincenal' | 'mensual';
@@ -98,10 +100,13 @@ export function mananaEnColombia(ahora = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: ZONA, year: 'numeric', month: '2-digit', day: '2-digit' }).format(manana);
 }
 
-/** El recordatorio sobra si la cita se reservó hace menos de 12 horas (la confirmación está fresca). */
+/**
+ * El recordatorio sobra si la cita se reservó hace menos de 12 horas (la confirmación está fresca). Los turnos de las
+ * agendas recurrentes no lo llevan aunque tengan el correo del cliente (está para que los vea en su cuenta).
+ */
 export function necesitaRecordatorio(cita: Cita, ahora = new Date()): boolean {
   const creada = cita.creadoEn ? new Date(cita.creadoEn).getTime() : 0;
-  return debeAvisar(cita, ahora) && emailValido(cita.userEmail) && ahora.getTime() - creada > 12 * 3600_000;
+  return debeAvisar(cita, ahora) && !cita.recurrenciaId && emailValido(cita.userEmail) && ahora.getTime() - creada > 12 * 3600_000;
 }
 
 export function emailValido(email: string | undefined | null): email is string {

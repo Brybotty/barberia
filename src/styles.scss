@@ -187,8 +187,15 @@ a, button, [role='button'] {
   }
 
   /* Enlaces de texto con zona táctil cómoda (44 px de alto en celular, sin cambiar cómo se ven). */
+  /* Enlaces de texto con zona táctil de 44 px. Solo se achican con mouse (pantalla ancha y puntero fino): una tablet
+     o un celular acostado usan el diseño de escritorio, pero se tocan con el dedo. */
   .enlace-toque {
-    @apply inline-flex min-h-11 items-center gap-2 sm:min-h-0;
+    @apply inline-flex min-h-11 items-center gap-2;
+  }
+  @media (min-width: 640px) and (pointer: fine) {
+    .enlace-toque {
+      min-height: 0;
+    }
   }
 }
 

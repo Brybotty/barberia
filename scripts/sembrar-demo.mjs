@@ -4,7 +4,8 @@
 //   npm run demo:sembrar
 //
 // Borra lo que haya en el emulador y crea: ajustes (cursos y horario), servicios, barberos (con día libre y
-// descanso), unas horas cerradas y ~5 semanas de citas.
+// descanso), ~5 semanas de citas, y la agenda de cada barbero de hoy a 62 días (`ocupacion`, con el rato de cada
+// cita por venir y unas horas cerradas).
 // Escribe por la API REST del emulador como "owner", así no depende de las reglas ni de firebase-admin.
 //
 // No deja usuarios de prueba: en la demo se inicia sesión con Google real. La cuenta adminEmail
@@ -68,8 +69,10 @@ async function main() {
     'barberosPrivado/Trip': { emailAsociado: 'trip.demo@example.com', comision: 50 },
   };
   SERVICIOS.forEach((s, i) => documentos[`servicios/S${i + 1}`] = s);
-  const citas = generarCitas(documentos);
-  cerrarHoras(documentos);
+  const agenda = prepararAgenda();
+  const citas = generarCitas(documentos, agenda);
+  cerrarHoras(agenda);
+  for (const [id, dia] of agenda) documentos[`ocupacion/${id}`] = { ...dia, op: { tipo: 'prepara' } };
   await escribir(documentos);
 
   console.log('Demo lista:');
@@ -87,26 +90,46 @@ const clave = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const hora12 = m => `${((Math.floor(m / 60) + 11) % 12) + 1}:${String(m % 60).padStart(2, '0')} ${m < 720 ? 'AM' : 'PM'}`;
 const hhmm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}${String(m % 60).padStart(2, '0')}`;
 const hora24 = m => `${hhmm(m).slice(0, 2)}:${hhmm(m).slice(2)}`;
-// Lo mismo que en src/app/core/utils/horario.ts: bloques de 20 min, un turno cada 40 desde la apertura del día.
-const BLOQUE = 20;
+// Lo mismo que en src/app/core/utils/horario.ts y ocupacion.ts: un turno cada 40 min desde la apertura del día, y
+// la agenda de cada día en marcas de 5 minutos ('0' libre, 'c' cita, letra del motivo de un cierre).
 const TURNO = 40;
 const CIERRE = 1180;
+const MARCA = 5;
 const aperturaDe = fecha => (fecha.getDay() === 5 || fecha.getDay() === 6 ? 540 : 560);
+/** Días de agenda preparados (DIAS_PREPARADOS en ocupacion.service.ts). */
+const DIAS_PREPARADOS = 62;
 
-/** Jose Julian cierra la tarde de pasado mañana (si ese rato está libre): un ejemplo de horario cerrado. */
-function cerrarHoras(documentos) {
+/** La agenda vacía de cada barbero, de hoy a DIAS_PREPARADOS días adelante: id -> documento de `ocupacion`. */
+function prepararAgenda() {
+  const agenda = new Map();
+  const hoy = new Date();
+  for (let i = 0; i <= DIAS_PREPARADOS; i++) {
+    const dia = clave(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + i));
+    for (const [barberoId] of BARBEROS) agenda.set(`${barberoId}_${dia}`, { barberoId, dia, mapa: '0'.repeat(1440 / MARCA), citas: {} });
+  }
+  return agenda;
+}
+
+/** Aparta un rato en la agenda (si el día está preparado): para una cita, o para un cierre con la letra de su motivo. */
+function apartar(agenda, barberoId, dia, inicio, duracion, { citaId, letra = 'c' }) {
+  const doc = agenda.get(`${barberoId}_${dia}`);
+  if (!doc) return;
+  const k = Math.floor(inicio / MARCA);
+  const n = Math.ceil(duracion / MARCA);
+  doc.mapa = doc.mapa.slice(0, k) + [...doc.mapa.slice(k, k + n)].map(m => (letra === 'c' || m === '0' ? letra : m)).join('') + doc.mapa.slice(k + n);
+  if (citaId) doc.citas[citaId] = [k, n];
+}
+
+/** Jose Julian cierra la tarde de pasado mañana (lo que esté libre): un ejemplo de horario cerrado. */
+function cerrarHoras(agenda) {
   const hoy = new Date();
   let fecha = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 2);
   if (fecha.getDay() === 0) fecha = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 3);
-  const dia = clave(fecha);
-  for (let m = 960; m < 1080; m += BLOQUE) {
-    const id = `slots/JoseJulian_${dia}_${hhmm(m)}`;
-    if (!documentos[id]) documentos[id] = { barberoId: 'JoseJulian', dia, hora: hora24(m), bloqueo: true, motivo: 'Permiso' };
-  }
+  apartar(agenda, 'JoseJulian', clave(fecha), 960, 120, { letra: 'P' });
 }
 
-/** Agrega las citas (y los turnos que ocupan) a `documentos`. Devuelve cuántas creó. */
-function generarCitas(documentos) {
+/** Agrega las citas a `documentos` (y el rato de las que vienen, a la agenda). Devuelve cuántas creó. */
+function generarCitas(documentos, agenda) {
   // Generador pseudoaleatorio fijo: la demo sale igual cada vez.
   let semilla = 7;
   const azar = () => ((semilla = (semilla * 16807) % 2147483647) / 2147483647);
@@ -126,18 +149,22 @@ function generarCitas(documentos) {
         const servicio = SERVICIOS[Math.floor(azar() * SERVICIOS.length)];
         const duracion = servicio.duracionMinutos;
         const inicio = aperturaDe(fecha) + Math.floor(azar() * 14) * TURNO; // un turno entre la apertura y las 6 p. m.
-        const bloques = Array.from({ length: Math.ceil(duracion / BLOQUE) }, (_, i) => inicio + i * BLOQUE);
-        if (inicio + duracion > CIERRE || bloques.some(b => ocupadas.has(b))) continue;
-        if (barberoId === 'Trip' && bloques.some(b => b >= 780 && b < 840)) continue; // su descanso
-        bloques.forEach(b => ocupadas.add(b));
+        const minutos = Array.from({ length: duracion / MARCA }, (_, i) => inicio + i * MARCA);
+        if (inicio + duracion > CIERRE || minutos.some(m => ocupadas.has(m))) continue;
+        if (barberoId === 'Trip' && inicio < 840 && inicio + duracion > 780) continue; // su descanso
+        minutos.forEach(m => ocupadas.add(m));
 
         const pasada = dias < 0 || (dias === 0 && inicio + duracion <= ahoraMin);
         const estado = pasada ? (azar() < 0.9 ? 'completada' : 'no-asistio') : (azar() < 0.5 ? 'confirmada' : 'pendiente');
         const id = `demo${String(++n).padStart(4, '0')}`;
+        const cuenta = 1 + Math.floor(azar() * CLIENTES.length);
+        const cliente = Math.floor(azar() * CLIENTES.length);
+        azar(); // Antes el celular salía al azar: se gasta igual el número para que el resto de la demo no cambie.
         const cita = {
-          userId: `cliente-demo-${1 + Math.floor(azar() * CLIENTES.length)}`,
-          userName: CLIENTES[Math.floor(azar() * CLIENTES.length)],
-          userEmail: '', phone: `3${Math.floor(100000000 + azar() * 899999999)}`,
+          userId: `cliente-demo-${cuenta}`,
+          userName: CLIENTES[cliente],
+          // Cada cliente con su celular de siempre: así se ven sus caritas de asistencia (cuántas veces faltó).
+          userEmail: '', phone: `3001000${String(cliente).padStart(3, '0')}`,
           servicioId: `S${SERVICIOS.indexOf(servicio) + 1}`, serviceName: servicio.nombre,
           precio: servicio.precio, duracionMinutos: duracion,
           barberoId, barberoNombre,
@@ -145,14 +172,10 @@ function generarCitas(documentos) {
           dia, hora: hora24(inicio), horaStr: hora12(inicio),
           // Reservada días antes (nunca en el futuro: si no, el admin la vería como "nueva").
           estado, creadoEn: new Date(Math.min(fecha.getTime() - 3 * 86400000, Date.now() - 3600000)).toISOString(),
-          slotIds: [],
         };
         // A veces se cobra distinto (adicionales, color "Desde").
         if (estado === 'completada' && azar() < 0.15) cita.precioFinal = servicio.precio + 5000 * (1 + Math.floor(azar() * 3));
-        if (estado === 'pendiente' || estado === 'confirmada') {
-          cita.slotIds = bloques.map(b => `${barberoId}_${dia}_${hhmm(b)}`);
-          bloques.forEach((b, i) => documentos[`slots/${cita.slotIds[i]}`] = { barberoId, dia, hora: hora24(b), citaId: id });
-        }
+        if (estado === 'pendiente' || estado === 'confirmada') apartar(agenda, barberoId, dia, inicio, duracion, { citaId: id });
         documentos[`citas/${id}`] = cita;
       }
     }

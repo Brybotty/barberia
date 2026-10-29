@@ -3,11 +3,11 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { take } from 'rxjs';
-import { AjustesSitio } from '../../../core/models/ajustes.model';
+import { AjustesSitio, MULTA_MAXIMA } from '../../../core/models/ajustes.model';
 import { AjustesService } from '../../../core/services/ajustes.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import {
-  Agenda, BLOQUE, DIAS_RESERVABLES, INTERVALO, MAX_DIAS_AGENDA, aperturaDe, claveDia, diaLargo, diasEntre, extenderAgenda,
+  Agenda, PASO_HORARIO, DIAS_RESERVABLES, INTERVALO, MAX_DIAS_AGENDA, aperturaDe, claveDia, diaLargo, diasEntre, extenderAgenda,
   fechaDesdeClave, formatearHora12, periodoDeAgenda, resumenHorario, sumarDias, topeDeAgenda, turnosDelDia,
 } from '../../../core/utils/horario';
 import { IconoComponent } from '../../../shared/components/icono/icono.component';
@@ -25,7 +25,7 @@ const DIAS = [
     <div class="max-w-4xl animate-in fade-in duration-500">
       <div class="mb-8">
         <h2 class="titulo-panel">Ajustes</h2>
-        <p class="mt-1 text-neutral-400">La agenda de reservas, el horario de la barbería y la sección de cursos.</p>
+        <p class="mt-1 text-neutral-400">La agenda de reservas, el horario de la barbería, la multa por no asistir y la sección de cursos.</p>
       </div>
 
       @if (form(); as f) {
@@ -160,6 +160,45 @@ const DIAS = [
             }
           </section>
 
+          <!-- ============ MULTA ============ -->
+          <section class="tarjeta p-5 sm:p-6" data-ajuste-multa>
+            <div class="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h3 class="text-lg font-black">Multa por no asistir</h3>
+                <p class="ayuda !mt-1">Para quien no llega a su turno. Se pone al marcar "No asistió" y se cobra en su próxima visita, al marcarla "Hecho". Tus clientes lo ven antes de confirmar su reserva.</p>
+              </div>
+              <label class="flex shrink-0 cursor-pointer items-center gap-3">
+                <span class="text-sm font-bold" [class]="f.multa.activa ? 'text-detalle-200' : 'text-neutral-500'">{{ f.multa.activa ? 'Activa' : 'Sin multa' }}</span>
+                <input type="checkbox" name="multaActiva" [(ngModel)]="f.multa.activa" class="peer sr-only">
+                <span class="interruptor"></span>
+              </label>
+            </div>
+            @if (f.multa.activa) {
+              <div class="grid gap-4 md:grid-cols-[13rem_1fr]">
+                <label class="block">
+                  <span class="etiqueta">Valor (COP) *</span>
+                  <input name="multaValor" type="number" min="1000" [max]="multaMaxima" step="1000" inputmode="numeric" [(ngModel)]="f.multa.valor" placeholder="10000" class="campo font-bold">
+                  @if (!multaValida(f.multa.valor)) { <span class="texto-error">Escribe un valor mayor que cero.</span> }
+                </label>
+                <div>
+                  <span class="etiqueta">¿Cómo se pone?</span>
+                  <div class="grid gap-2 sm:grid-cols-2" role="group" aria-label="Cómo se pone la multa">
+                    <button type="button" (click)="f.multa.automatica = true" [attr.aria-pressed]="f.multa.automatica" class="min-h-11 rounded-xl border px-3 py-2 text-left text-sm font-bold transition-colors"
+                            [class]="f.multa.automatica ? 'border-acento-500 bg-acento-500 text-sobre-acento' : 'border-white/10 text-neutral-300 hover:text-white'">
+                      Sola, al marcar "No asistió"
+                      <span class="block text-xs font-normal opacity-80">Viene puesta; se puede quitar en ese momento.</span>
+                    </button>
+                    <button type="button" (click)="f.multa.automatica = false" [attr.aria-pressed]="!f.multa.automatica" class="min-h-11 rounded-xl border px-3 py-2 text-left text-sm font-bold transition-colors"
+                            [class]="!f.multa.automatica ? 'border-acento-500 bg-acento-500 text-sobre-acento' : 'border-white/10 text-neutral-300 hover:text-white'">
+                      La decido cada vez
+                      <span class="block text-xs font-normal opacity-80">Al marcar "No asistió" eliges si se la pones.</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+          </section>
+
           <!-- ============ CURSOS ============ -->
           <section class="tarjeta p-5 sm:p-6">
             <div class="mb-6 flex items-start justify-between gap-4">
@@ -222,8 +261,10 @@ export class AdminAjustesComponent {
   readonly diasContinua = DIAS_RESERVABLES;
   readonly turno = INTERVALO;
   /** De 5:00 a. m. a medianoche, cada 20 minutos (el bloque de la agenda). */
-  readonly horas = Array.from({ length: (1440 - 300) / BLOQUE + 1 }, (_, i) => 300 + i * BLOQUE).map(minutos => ({ minutos, etiqueta: minutos === 1440 ? '12:00 AM (medianoche)' : formatearHora12(minutos) }));
+  readonly horas = Array.from({ length: (1440 - 300) / PASO_HORARIO + 1 }, (_, i) => 300 + i * PASO_HORARIO).map(minutos => ({ minutos, etiqueta: minutos === 1440 ? '12:00 AM (medianoche)' : formatearHora12(minutos) }));
   nuevoCierre = '';
+
+  readonly multaMaxima = MULTA_MAXIMA;
 
   /** Copia editable. Se toma una sola vez para no pisar lo que el admin está escribiendo. */
   readonly form = signal<AjustesSitio | null>(null);
@@ -277,6 +318,13 @@ export class AdminAjustesComponent {
       texto: `Tus clientes pueden reservar ${agenda.desde > this.hoy ? `del ${diaLargo(agenda.desde)} al` : 'hasta el'} ${diaLargo(agenda.hasta)} `
         + `(${dias === 1 ? 'queda 1 día' : `${dias} días`}). Después la agenda queda cerrada hasta que abras otro periodo.`,
     };
+  }
+
+  // ---------- Multa ----------
+
+  multaValida(valor: number): boolean {
+    const n = Number(valor);
+    return Number.isFinite(n) && n > 0 && n <= MULTA_MAXIMA;
   }
 
   // ---------- Horario ----------
@@ -352,6 +400,10 @@ export class AdminAjustesComponent {
       this.notificaciones.error('Revisa el enlace de los cursos', 'Debe ser una dirección completa que empiece por https://');
       return;
     }
+    if (f.multa.activa && !this.multaValida(f.multa.valor)) {
+      this.notificaciones.error('Revisa la multa', 'Escribe un valor mayor que cero, o desactívala.');
+      return;
+    }
     if (f.agenda.modo === 'periodo') {
       const revision = this.revisarAgenda(f.agenda);
       if (revision.tipo === 'error') {
@@ -364,6 +416,9 @@ export class AdminAjustesComponent {
       cursos: { ...f.cursos, url: f.cursos.url.trim(), titulo: f.cursos.titulo.trim(), descripcion: f.cursos.descripcion.trim(), textoBoton: f.cursos.textoBoton.trim() },
       // Las fechas cerradas que ya pasaron se sueltan solas.
       horario: { ...f.horario, aperturas: this.aperturasPropias(f), cierres: f.horario.cierres.filter(c => c >= this.hoy) },
+      multa: { activa: f.multa.activa, valor: Math.round(Number(f.multa.valor)) || 0, automatica: f.multa.automatica },
+      // No se guarda desde aquí (se elige en Citas): va solo para que el formulario quede completo.
+      serviciosPorDia: f.serviciosPorDia,
     };
     this.guardando.set(true);
     try {

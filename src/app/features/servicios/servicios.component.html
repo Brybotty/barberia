@@ -42,6 +42,12 @@
                   <div>
                     <p class="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">{{ servicio.precioDesde ? 'Desde' : 'Precio' }}</p>
                     <p class="font-display text-3xl font-black text-white">{{ servicio.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+                    @if (soloCon(servicio)) {
+                      <p class="mt-1 text-xs font-bold text-detalle-200">Solo con {{ soloCon(servicio) }}</p>
+                    }
+                    @for (p of preciosDe(servicio); track p.barbero.id) {
+                      <p class="mt-1 text-xs font-bold text-detalle-200">Con {{ p.barbero.nombre }}: {{ p.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+                    }
                     <p class="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-neutral-400">
                       <app-icono nombre="reloj" class="h-4 w-4" [grosor]="2" />
                       {{ servicio.duracionMinutos | duracion }}

@@ -55,9 +55,18 @@ export interface Cita {
   recurrenciaId?: string;
   /** Cada cuánto viene el cliente (para marcarlo en la agenda sin leer la serie). */
   frecuencia?: Frecuencia;
+  /**
+   * 'barbero': se la agendó el propio barbero desde su panel. No es de ninguna cuenta, no lleva correo del cliente y
+   * a él no le llega aviso por correo de su propia cita.
+   */
+  origen?: 'barbero';
+  /** Multa (en pesos) por no asistir: solo en una cita "No asistió". Se cobra en la siguiente visita del cliente. */
+  multa?: number;
+  /** Multa que el cliente pagó en esta cita (una "Hecho"): salda lo que debía de citas anteriores. */
+  multaCobrada?: number;
 }
 
-export type NuevaCita = Omit<Cita, 'id' | 'estado' | 'creadoEn' | 'slotIds' | 'dia' | 'hora' | 'cupoId' | 'reemplazaA' | 'reemplazadaPor' | 'precioFinal' | 'recurrenciaId' | 'frecuencia'> & {
+export type NuevaCita = Omit<Cita, 'id' | 'estado' | 'creadoEn' | 'slotIds' | 'dia' | 'hora' | 'cupoId' | 'reemplazaA' | 'reemplazadaPor' | 'precioFinal' | 'recurrenciaId' | 'frecuencia' | 'origen' | 'multa' | 'multaCobrada'> & {
   dia: string;
   hora: string;
 };

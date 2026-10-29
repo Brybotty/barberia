@@ -1,25 +1,24 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { catchError, firstValueFrom, of } from 'rxjs';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { catchError, of, switchMap } from 'rxjs';
 import { BarberoPublico } from '../../../core/models/barbero.model';
 import { AjustesService } from '../../../core/services/ajustes.service';
 import { BarberosService } from '../../../core/services/barberos.service';
-import { CitasService, MOTIVOS_BLOQUEO, MotivoBloqueo } from '../../../core/services/citas.service';
+import { CitasService, DiaNoPreparadoError, MOTIVOS_BLOQUEO, MotivoBloqueo } from '../../../core/services/citas.service';
 import { ConfirmarService } from '../../../core/services/confirmar.service';
 import { NotificationService } from '../../../core/services/notification.service';
-import {
-  Slot, aperturaDe, claveDia, estaCerrado, fechaDesdeClave, formatearHora12, opcionesDeHora, parsearHora, rangosDe,
-} from '../../../core/utils/horario';
+import { OcupacionService } from '../../../core/services/ocupacion.service';
+import { aperturaDe, claveDia, estaCerrado, fechaDesdeClave, formatearHora12, opcionesDeHora } from '../../../core/utils/horario';
+import { MARCA, Ocupacion, cierresDe } from '../../../core/utils/ocupacion';
 import { IconoComponent } from '../icono/icono.component';
 
 interface BloqueoDelDia {
   dia: string;
   fecha: Date;
   motivo: string;
-  rangos: { desde: number; hasta: number; texto: string; ids: string[] }[];
-  ids: string[];
+  rangos: { desde: number; hasta: number; texto: string }[];
 }
 
 const DIAS = [
@@ -161,6 +160,7 @@ const DIAS = [
 export class DisponibilidadComponent {
   private barberos = inject(BarberosService);
   private citas = inject(CitasService);
+  private ocupacion = inject(OcupacionService);
   private ajustes = inject(AjustesService);
   private notificaciones = inject(NotificationService);
   private confirmar = inject(ConfirmarService);
@@ -173,8 +173,9 @@ export class DisponibilidadComponent {
   /** Las reglas aceptan cierres hasta 60 días adelante. */
   readonly limite = claveDia(new Date(Date.now() + 60 * 86_400_000));
 
-  readonly horasInicio = computed(() => opcionesDeHora(this.ajustes.horario()));
-  readonly horasFin = computed(() => opcionesDeHora(this.ajustes.horario(), true).slice(1));
+  /** De 5 en 5 minutos, como la agenda (así el cierre empieza justo donde termina una cita). */
+  readonly horasInicio = computed(() => opcionesDeHora(this.ajustes.horario(), false, MARCA));
+  readonly horasFin = computed(() => opcionesDeHora(this.ajustes.horario(), true, MARCA).slice(1));
 
   // --- Semana ---
   readonly diasLibres = signal<number[]>([]);
@@ -191,36 +192,30 @@ export class DisponibilidadComponent {
   hasta = 14 * 60;
   readonly cerrando = signal(false);
 
-  private readonly todos = toSignal(
-    this.citas.bloqueosVigentes().pipe(catchError(error => {
-      console.error('Error cargando los horarios cerrados', error);
-      return of<Slot[]>([]);
-    })),
-    { initialValue: [] as Slot[] },
+  /** Los días de agenda de este barbero, de hoy al límite (cada uno con sus ratos cerrados). */
+  private readonly diasDeAgenda = toSignal(
+    toObservable(this.barbero).pipe(
+      switchMap(b => this.ocupacion.entre(b.id!, this.hoy, this.limite)),
+      catchError(error => {
+        console.error('Error cargando los horarios cerrados', error);
+        return of<Ocupacion[]>([]);
+      }),
+    ),
+    { initialValue: [] as Ocupacion[] },
   );
 
-  /** Horarios cerrados de este barbero, por día, con los bloques seguidos juntos ("1:00 PM – 2:00 PM"). */
-  readonly bloqueos = computed<BloqueoDelDia[]>(() => {
-    const porDia = new Map<string, Slot[]>();
-    for (const s of this.todos().filter(s => s.barberoId === this.barbero().id)) {
-      porDia.set(s.dia, [...(porDia.get(s.dia) ?? []), s]);
-    }
-    return [...porDia].sort(([a], [b]) => a.localeCompare(b)).map(([dia, slots]) => {
-      const minutos = slots.map(s => parsearHora(s.hora) ?? 0);
-      const idDe = (m: number) => slots.find(s => (parsearHora(s.hora) ?? 0) === m)!.id;
-      return {
+  /** Horarios cerrados de este barbero, por día, con los ratos seguidos juntos ("1:00 PM – 2:00 PM"). */
+  readonly bloqueos = computed<BloqueoDelDia[]>(() =>
+    this.diasDeAgenda()
+      .map(o => ({ dia: o.dia, cierres: cierresDe(o.mapa) }))
+      .filter(d => d.cierres.length > 0)
+      .sort((a, b) => a.dia.localeCompare(b.dia))
+      .map(({ dia, cierres }) => ({
         dia,
         fecha: fechaDesdeClave(dia),
-        motivo: slots.find(s => s.motivo)?.motivo ?? '',
-        ids: slots.map(s => s.id),
-        rangos: rangosDe(minutos).map(r => ({
-          ...r,
-          texto: `${formatearHora12(r.desde)} – ${formatearHora12(r.hasta)}`,
-          ids: minutos.filter(m => m >= r.desde && m < r.hasta).map(idDe),
-        })),
-      };
-    });
-  });
+        motivo: cierres.find(c => c.motivo)?.motivo ?? '',
+        rangos: cierres.map(c => ({ desde: c.desde, hasta: c.hasta, texto: `${formatearHora12(c.desde)} – ${formatearHora12(c.hasta)}` })),
+      })));
 
   /** ¿Lo que está en pantalla es distinto de lo guardado? */
   readonly semanaCambio = computed(() => {
@@ -306,8 +301,7 @@ export class DisponibilidadComponent {
     }
     this.cerrando.set(true);
     try {
-      const ocupados = await firstValueFrom(this.citas.slotsOcupados(this.dia));
-      const resultado = await this.citas.bloquear({ barberoId: this.barbero().id!, dia: this.dia, desde, hasta, motivo: this.motivo, ocupados });
+      const resultado = await this.citas.bloquear({ barberoId: this.barbero().id!, dia: this.dia, desde, hasta, motivo: this.motivo });
       if (resultado.cerrados === 0) {
         this.notificaciones.error('No había nada que cerrar', 'Ese horario ya estaba cerrado o tiene citas agendadas.');
       } else {
@@ -317,7 +311,11 @@ export class DisponibilidadComponent {
       }
     } catch (e) {
       console.error(e);
-      this.notificaciones.error('No se pudo cerrar el horario', 'Puede que alguien acabe de reservar ahí. Inténtalo de nuevo.');
+      if (e instanceof DiaNoPreparadoError) {
+        this.notificaciones.error('Ese día aún no está listo en la agenda', 'Se prepara solo esta noche, o al abrir el panel de admin. Inténtalo más tarde.');
+      } else {
+        this.notificaciones.error('No se pudo cerrar el horario', 'Puede que alguien acabe de reservar ahí. Inténtalo de nuevo.');
+      }
     } finally {
       this.cerrando.set(false);
     }
@@ -327,7 +325,7 @@ export class DisponibilidadComponent {
     const fecha = bloqueo.fecha.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
     if (!(await this.confirmar.preguntar({ titulo: '¿Volver a abrir este horario?', texto: `El ${fecha} se podrán reservar turnos en ese rato otra vez.`, aceptar: 'Sí, abrirlo' }))) return;
     try {
-      await this.citas.desbloquear(bloqueo.ids);
+      await this.citas.desbloquear(this.barbero().id!, bloqueo.dia);
     } catch (e) {
       console.error(e);
       this.notificaciones.error('No se pudo abrir el horario', 'Inténtalo de nuevo.');

@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { CurrencyPipe, NgClass } from '@angular/common';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -12,9 +12,16 @@ import { Usuario } from '../../../core/models/usuario.model';
 import { Cita, esActiva } from '../../../core/models/cita.model';
 import { AjustesService } from '../../../core/services/ajustes.service';
 import { MAX_DIAS_AGENDA, claveDia, compararCitas, diaDeCita, diaLargo, extenderAgenda } from '../../../core/utils/horario';
+import { BarberosService } from '../../../core/services/barberos.service';
+import { OcupacionService } from '../../../core/services/ocupacion.service';
+import { ServiciosService } from '../../../core/services/servicios.service';
+import { BarberoPublico, ofreceServicio } from '../../../core/models/barbero.model';
+import { Servicio, esDelMenuDe } from '../../../core/models/servicio.model';
 import { rangoDe, enPeriodo, valorCobrado } from '../../../core/utils/ganancias';
 import { formatoCelular } from '../../../core/utils/colombia';
 import { CLIENTE } from '../../../config/cliente';
+import { ResumenAsistencia, claveCliente, resumirAsistencia } from '../../../core/utils/asistencia';
+import { CaritaComponent } from '../../../shared/components/carita/carita.component';
 import { IconoComponent } from '../../../shared/components/icono/icono.component';
 import { MarcaComponent } from '../../../shared/components/marca/marca.component';
 import { AdminCitasComponent } from '../admin-citas/admin-citas.component';
@@ -58,7 +65,7 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
   standalone: true,
   imports: [
     NgClass, CurrencyPipe, RouterLink, IconoComponent, MarcaComponent, AdminCitasComponent, AdminServiciosComponent, AdminBarberosComponent,
-    AdminAjustesComponent, AdminRendimientoComponent, AdminRecurrentesComponent, RecurrenteComponent,
+    AdminAjustesComponent, AdminRendimientoComponent, AdminRecurrentesComponent, RecurrenteComponent, CaritaComponent,
   ],
   template: `
     <div class="flex h-[100dvh] overflow-hidden bg-neutral-950 font-sans text-white">
@@ -146,6 +153,20 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
                 </div>
               }
 
+              <!-- Servicios que por ahora no se reservan en la página con algún barbero: que no se olvide habilitarlos -->
+              @if (serviciosLimitados().length) {
+                <div class="mb-6 flex flex-col gap-4 rounded-2xl border border-detalle-400/25 bg-detalle-500/[0.05] p-4 sm:flex-row sm:items-center">
+                  <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-detalle-400/40 text-detalle-200">
+                    <app-icono nombre="candado" class="h-5 w-5" [grosor]="1.8" />
+                  </span>
+                  <div class="min-w-0 flex-1">
+                    <p class="font-black text-white">No todos los servicios se pueden reservar</p>
+                    @for (l of serviciosLimitados(); track l.id) { <p class="text-sm text-neutral-400">{{ l.texto }}</p> }
+                  </div>
+                  <button type="button" (click)="currentTab.set('servicios')" class="boton-linea boton-chico shrink-0">Habilitar servicios</button>
+                </div>
+              }
+
               <div class="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
                 <div class="placa p-5">
                   <p class="text-sm font-bold text-neutral-400">Citas de hoy</p>
@@ -190,6 +211,7 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
                         <div class="min-w-0 flex-1">
                           <p class="flex min-w-0 items-center gap-2">
                             <span class="truncate font-bold">{{ cita.userName }}</span>
+                            <app-carita [resumen]="asistenciaDe(cita)" [conTexto]="true" />
                             @if (cita.recurrenciaId) { <app-recurrente [frecuencia]="cita.frecuencia" [corto]="true" /> }
                           </p>
                           <p class="truncate text-sm text-neutral-500">{{ cita.serviceName }} · {{ cita.barberoNombre }}</p>
@@ -246,7 +268,7 @@ const ROLES: { valor: Usuario['rol']; nombre: string }[] = [
           @if (currentTab() === 'barberos') { <app-admin-barberos /> }
           @if (currentTab() === 'citas') { <app-admin-citas /> }
           @if (currentTab() === 'recurrentes') { <app-admin-recurrentes /> }
-          @if (currentTab() === 'servicios') { <app-admin-servicios /> }
+          @if (currentTab() === 'servicios') { <app-admin-servicios (irACitas)="currentTab.set('citas')" /> }
           @if (currentTab() === 'rendimiento') { <app-admin-rendimiento /> }
           @if (currentTab() === 'ajustes') { <app-admin-ajustes /> }
         </div>
@@ -319,6 +341,14 @@ export class AdminDashboardComponent {
   });
 
   /** Turnos de hoy que faltan por atender, en orden. */
+  /** Las caritas de asistencia (ver utils/asistencia.ts): el admin ya tiene todas las citas. */
+  private readonly asistencia = computed(() => resumirAsistencia(this.citas() ?? []));
+
+  asistenciaDe(cita: Cita): ResumenAsistencia | undefined {
+    const clave = claveCliente(cita);
+    return clave ? this.asistencia().get(clave) : undefined;
+  }
+
   readonly siguientes = computed(() => {
     const hoy = claveDia(new Date());
     return (this.citas() ?? []).filter(c => diaDeCita(c) === hoy && esActiva(c.estado)).sort(compararCitas).slice(0, 6);
@@ -342,6 +372,40 @@ export class AdminDashboardComponent {
     };
   });
   readonly abriendoAgenda = signal(false);
+
+  private readonly equipo = toSignal(inject(BarberosService).listar().pipe(catchError(() => of<BarberoPublico[]>([]))), { initialValue: [] as BarberoPublico[] });
+  private readonly catalogo = toSignal(inject(ServiciosService).actuales().pipe(catchError(() => of<Servicio[]>([]))), { initialValue: [] as Servicio[] });
+
+  /** Barberos con servicios sin habilitar para reservar en la página (ver Servicios y precios). */
+  readonly serviciosLimitados = computed(() => {
+    // Cada uno con su menú: los servicios propios de otro barbero no cuentan como "sin habilitar".
+    return this.equipo()
+      .map(b => ({ b, menu: this.catalogo().filter(s => esDelMenuDe(s, b.id)) }))
+      .map(({ b, menu }) => ({ b, menu, abiertos: menu.filter(s => ofreceServicio(b, s)) }))
+      .filter(({ menu, abiertos }) => abiertos.length < menu.length)
+      .map(({ b, abiertos }) => ({
+        id: b.id!,
+        texto: abiertos.length
+          ? `Con ${b.nombre} solo se reserva: ${abiertos.map(s => s.nombre).join(', ')}.`
+          : `Con ${b.nombre} no se reserva nada en la página.`,
+      }));
+  });
+
+  constructor() {
+    // Prepara los días de agenda que les falten a los barberos: sin su documento de ocupación, ese día no se puede
+    // reservar. La primera vez (tras publicar este cambio) arma los próximos 62 días con las citas que ya había;
+    // después casi nunca falta nada (la Cloud Function los prepara cada noche), salvo con un barbero nuevo.
+    const ocupacion = inject(OcupacionService);
+    let preparados = '';
+    effect(() => {
+      const ids = this.equipo().map(b => b.id!).filter(Boolean).sort();
+      if (ids.length === 0 || ids.join(',') === preparados) return;
+      preparados = ids.join(',');
+      untracked(() => ocupacion.prepararPendientes(ids)
+        .then(creados => { if (creados) console.info(`Agenda: ${creados} días preparados.`); })
+        .catch(error => console.error('No se pudieron preparar los días de la agenda:', error)));
+    });
+  }
 
   /** Abre más días de agenda sin pasar por Ajustes: desde el último día abierto o, si ya cerró, desde hoy. */
   async abrirAgenda(dias: number) {

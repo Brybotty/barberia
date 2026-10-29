@@ -12,6 +12,7 @@ import { ServiciosService } from '../../core/services/servicios.service';
 import { BarberosService } from '../../core/services/barberos.service';
 import { AjustesService } from '../../core/services/ajustes.service';
 import { estadoDelNegocio, resumenHorario } from '../../core/utils/horario';
+import { enNavegador } from '../../core/utils/plataforma';
 import { CLIENTE } from '../../config/cliente';
 import { VideoGalleryComponent } from './components/video-gallery/video-gallery.component';
 import { IconoComponent } from '../../shared/components/icono/icono.component';
@@ -31,6 +32,8 @@ export class HomeComponent {
   readonly ajustes = this.ajustesService.ajustes;
 
   readonly cliente = CLIENTE;
+  /** Al compilar (prerender) no hay hora del visitante: lo que depende de ella espera al navegador. */
+  readonly navegador = enNavegador;
   readonly iniciales = iniciales;
   readonly estrellas = [1, 2, 3, 4, 5];
   // URL fija de la configuración del cliente, no viene de usuarios.
@@ -39,7 +42,7 @@ export class HomeComponent {
     : null;
 
   /** En pantallas táctiles el mapa no atrapa el dedo al bajar por la página: se activa con un toque. */
-  readonly mapaActivo = signal(!matchMedia('(pointer: coarse)').matches);
+  readonly mapaActivo = signal(enNavegador && !matchMedia('(pointer: coarse)').matches);
 
   /**
    * El mapa de Google baja más código que toda la página y, en un celular modesto, compite con ella por el
@@ -73,8 +76,10 @@ export class HomeComponent {
 
   constructor() {
     const destruir = inject(DestroyRef);
-    const reloj = setInterval(() => this.ahora.set(new Date()), 60_000);
-    destruir.onDestroy(() => clearInterval(reloj));
+    if (enNavegador) {
+      const reloj = setInterval(() => this.ahora.set(new Date()), 60_000);
+      destruir.onDestroy(() => clearInterval(reloj));
+    }
 
     afterNextRender(() => {
       const marco = this.marcoMapa()?.nativeElement;
@@ -97,8 +102,9 @@ export class HomeComponent {
     });
   }
 
+  /** Un servicio propio de un barbero se reserva con él: la reserva abre ya con ese barbero elegido. */
   irAReservar(servicio: Servicio) {
-    this.router.navigate(['/reservar'], { state: { servicio } });
+    this.router.navigate(['/reservar'], { state: servicio.soloDe ? { servicio, servicioId: servicio.id, barberoId: servicio.soloDe } : { servicio } });
   }
 
   reservarCon(barbero: BarberoPublico) {

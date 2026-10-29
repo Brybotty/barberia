@@ -47,8 +47,36 @@ service cloud.firestore {
 
     // Google entrega el correo verificado y las cuentas del equipo (correo y contraseña) las crea el admin
     // verificadas. Una cuenta creada desde fuera con un correo ajeno NO lo está: no cuenta como dueña de él.
+    // (Las cuentas del celular no traen el dato: con get no es un error, es falso.)
     function correoVerificado() {
-      return request.auth.token.email_verified == true;
+      return request.auth.token.get('email_verified', false) == true;
+    }
+
+    // La cuenta entró con su celular colombiano: Firebase lo verificó con el código por SMS ('+573001234567').
+    function celularVerificado() {
+      return request.auth.token.get('phone_number', '') is string
+        && request.auth.token.get('phone_number', '').matches('^[+]573[0-9]{9}$');
+    }
+
+    // Una cita que el equipo registró sin cuenta (desde el panel, el barbero o una agenda recurrente) con el celular o
+    // el correo de quien escribe: es suya, aunque no la haya reservado él. Solo cuenta lo verificado (el celular con el
+    // que entró por SMS o su correo verificado), nunca lo que alguien escriba en su perfil. El celular se guarda en
+    // 10 dígitos, sin el +57 (limpiarCelular en la app).
+    function esDeSuContacto(cita) {
+      return isAuth() && cita.userId == ''
+        && ((celularVerificado() && cita.phone == request.auth.token.phone_number[3:13])
+            || (correoVerificado() && cita.userEmail == emailDeLaCuenta()));
+    }
+
+    // --- Catálogo ---
+    // Lo que cuesta un servicio con ese barbero: su precio propio, si el admin le puso uno, o el general.
+    function precioCon(servicio, barberoId) {
+      return servicio.get('precios', {}).get(barberoId, servicio.precio);
+    }
+
+    // El servicio está en el menú de ese barbero: es de todos, o es su servicio propio (`soloDe`).
+    function loHace(servicio, barberoId) {
+      return servicio.get('soloDe', '') in ['', barberoId];
     }
 
     // El perfil de barbero enlazado al correo verificado de quien escribe (lo enlaza el admin en barberosPrivado).
@@ -58,10 +86,15 @@ service cloud.firestore {
     }
 
     // --- Fechas y horas ---
-    // Los bloques de la agenda son de 20 minutos (BLOQUE en src/app/core/utils/horario.ts). Los turnos que ofrece la
-    // página van cada 40 min desde la hora en que abre cada día, y no todos los días abren a la misma hora (9:20
-    // unos, 9:00 otros): con bloques de 20 min, dos citas que se cruzan comparten siempre algún bloque, así que la
-    // doble reserva es imposible sin que estas reglas tengan que saber el horario de la barbería.
+    // La agenda va al minuto, de 5 en 5: cada barbero tiene un documento por día en `ocupacion` con un mapa de 288
+    // marcas (ver más abajo y src/app/core/utils/ocupacion.ts). Las reglas no saben el horario de la barbería (a
+    // propósito: un cambio en Ajustes nunca deja la página sin poder reservar); lo que impide la doble reserva es que
+    // cada cita aparta su rato en ese mapa, y solo se puede apartar lo que está libre.
+
+    // 'HH:mm' en la rejilla de 5 minutos.
+    function horaValida(hora) {
+      return hora is string && hora.matches('^([01][0-9]|2[0-3]):[0-5][05]$');
+    }
 
     function dosDigitos(n) {
       return n < 10 ? '0' + string(n) : string(n);
@@ -130,9 +163,18 @@ service cloud.firestore {
     }
 
     // ---------- servicios (catálogo público) ----------
+    // precios: el precio propio de algunos barberos ({barberoId: pesos}); soloDe: el barbero de un servicio propio.
     match /servicios/{servicioId} {
+      function servicioValido() {
+        let s = request.resource.data;
+        return s.precio is number && s.precio >= 0
+          && s.get('precios', {}) is map && s.get('precios', {}).size() <= 30
+          && s.get('soloDe', '') is string && s.get('soloDe', '').size() <= 60;
+      }
+
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if servicioValido() && isAdmin();
+      allow delete: if isAdmin();
     }
 
     // ---------- barberos (perfiles públicos del staff) ----------
@@ -151,14 +193,16 @@ service cloud.firestore {
                   && descanso.desde >= 0 && descanso.hasta <= 1440 && descanso.desde < descanso.hasta));
       }
 
+      // serviciosCerrados: IDs de los servicios que por ahora no se reservan en línea con este barbero.
       function perfilValido() {
         let b = request.resource.data;
-        return b.keys().hasOnly(['nombre', 'especialidad', 'avatar', 'instagram', 'orden', 'diasLibres', 'descanso'])
+        return b.keys().hasOnly(['nombre', 'especialidad', 'avatar', 'instagram', 'orden', 'diasLibres', 'descanso', 'serviciosCerrados'])
           && b.nombre is string && b.nombre.size() > 0 && b.nombre.size() <= 80
           && b.get('especialidad', '') is string && b.get('especialidad', '').size() <= 80
           && b.get('avatar', '') is string && b.get('avatar', '').size() <= 600
           && b.get('instagram', '') is string && b.get('instagram', '').matches('^[A-Za-z0-9._]{0,30}$')
           && b.get('orden', 0) is number
+          && b.get('serviciosCerrados', []) is list && b.get('serviciosCerrados', []).size() <= 40
           && disponibilidadValida();
       }
 
@@ -184,10 +228,11 @@ service cloud.firestore {
     }
 
     // ---------- ajustes (cursos, horario de atención y agenda de reservas): un solo documento, 'sitio' ----------
-    // `agenda` decide hasta qué día se puede reservar (ver agendaAbierta() en cupos).
+    // `agenda` decide hasta qué día se puede reservar y `serviciosPorDia` qué servicios se reservan en línea los días
+    // que el admin limitó (ver reservaAbierta() en cupos).
     match /ajustes/{ajusteId} {
       allow read: if true;
-      allow write: if ajusteId == 'sitio' && isAdmin();
+      allow write: if ajusteId == 'sitio' && isAdmin() && request.resource.data.get('serviciosPorDia', {}) is map;
     }
 
     // ---------- citas (contienen datos personales) ----------
@@ -201,10 +246,10 @@ service cloud.firestore {
         let campos = request.resource.data.keys();
         return campos.hasOnly([
             'userId', 'userName', 'userEmail', 'phone', 'servicioId', 'serviceName', 'precio', 'duracionMinutos',
-            'barberoId', 'barberoNombre', 'dia', 'hora', 'horaStr', 'fecha', 'estado', 'creadoEn', 'slotIds',
+            'barberoId', 'barberoNombre', 'dia', 'hora', 'horaStr', 'fecha', 'estado', 'creadoEn',
             'cupoId', 'reemplazaA'])
           && campos.hasAll([
-            'userId', 'servicioId', 'serviceName', 'precio', 'duracionMinutos', 'barberoId', 'dia', 'hora', 'estado', 'slotIds',
+            'userId', 'userName', 'servicioId', 'serviceName', 'precio', 'duracionMinutos', 'barberoId', 'dia', 'hora', 'estado',
             'cupoId']);
       }
 
@@ -218,7 +263,7 @@ service cloud.firestore {
         let fecha = cita.get('fecha', '');
         let creado = cita.get('creadoEn', '');
         let reemplaza = cita.get('reemplazaA', '');
-        return nombre is string && nombre.size() <= 120
+        return nombre is string && nombre.size() > 0 && nombre.size() <= 120
           && celular is string && celular.matches('^[0-9+ ()-]{0,25}$')
           && barbero is string && barbero.size() <= 80
           && horaStr is string && horaStr.size() <= 12
@@ -227,62 +272,41 @@ service cloud.firestore {
           && reemplaza is string && reemplaza.size() <= 40;
       }
 
-      // Nombre, precio y duración salen del catálogo, no de lo que mande el navegador.
+      // Nombre, precio y duración salen del catálogo, no de lo que mande el navegador. El precio es el de ese barbero
+      // (el suyo propio, si tiene), y un servicio propio de otro barbero no se reserva con este.
       function coincideConServicio() {
         let cita = request.resource.data;
         let servicio = get(/databases/$(database)/documents/servicios/$(cita.servicioId)).data;
         let duracion = servicio.get('duracionMinutos', 0);
         return cita.serviceName == servicio.nombre
-          && cita.precio == servicio.precio
+          && cita.precio == precioCon(servicio, cita.barberoId)
+          && loHace(servicio, cita.barberoId)
           // Sin duración en el catálogo, la página usa un turno (40 min).
           && (cita.duracionMinutos == duracion || (duracion <= 0 && cita.duracionMinutos == 40));
       }
 
-      // 'HHmm' de cada bloque de 20 minutos del día: el bloque k empieza a los k * 20 minutos. Los 6 últimos son
-      // relleno, para poder armar los 7 bloques esperados de una cita de última hora sin salirse de la lista.
-      function bloquesDelDia() {
-        return [
-          '0000', '0020', '0040', '0100', '0120', '0140', '0200', '0220', '0240', '0300', '0320', '0340',
-          '0400', '0420', '0440', '0500', '0520', '0540', '0600', '0620', '0640', '0700', '0720', '0740',
-          '0800', '0820', '0840', '0900', '0920', '0940', '1000', '1020', '1040', '1100', '1120', '1140',
-          '1200', '1220', '1240', '1300', '1320', '1340', '1400', '1420', '1440', '1500', '1520', '1540',
-          '1600', '1620', '1640', '1700', '1720', '1740', '1800', '1820', '1840', '1900', '1920', '1940',
-          '2000', '2020', '2040', '2100', '2120', '2140', '2200', '2220', '2240', '2300', '2320', '2340',
-          '-', '-', '-', '-', '-', '-'];
-      }
-
-      // El bloque número i queda a nombre de esta cita en el mismo batch (se crea, o se traspasa al reagendar).
-      // Si ya era de otra cita o de un bloqueo, el batch falla: no hay doble reserva.
-      function bloqueDeLaCita(ids, id, i) {
-        return ids.size() <= i || getAfter(/databases/$(database)/documents/slots/$(ids[i])).data.citaId == id;
-      }
-
-      // Hora en punto, y 20 o y 40, y TODOS los bloques de la duración del servicio, con los IDs que les corresponden
-      // ({barberoId}_{YYYY-MM-DD}_{HHmm}, uno cada 20 minutos desde la hora de la cita).
-      // Máximo 7 bloques (2 h 20 min) por reserva en línea: es lo que se alcanza a comprobar uno por uno dentro de
-      // los límites de las reglas (10 lecturas y 1.000 expresiones por escritura). Los servicios más largos los
-      // registra el admin.
-      // OJO al cambiar esta regla: con 7 bloques quedan al menos 120 expresiones de margen (medido en el emulador
-      // el 2026-10-12; avisa con "maximum of 1000 expressions"). Si se agregan comprobaciones, corre `npm run test:reglas`.
-      function bloquesCoherentes(id) {
+      // Las citas que agenda el equipo desde el panel: nombre y precio del catálogo (cuentan en las ganancias), pero la
+      // duración la elige quien agenda, de 5 en 5, si ese cliente tarda más o menos (como en las agendas recurrentes).
+      // Que vaya de 5 en 5 y aparte justo su rato lo revisa marcasCoherentes.
+      function nombreYPrecioDelCatalogo() {
         let cita = request.resource.data;
-        let ids = cita.slotIds;
-        let b = cita.barberoId + '_' + cita.dia + '_';
-        let h = bloquesDelDia();
-        let k = int(minutosDe(cita.hora) / 20);
+        let servicio = get(/databases/$(database)/documents/servicios/$(cita.servicioId)).data;
+        return cita.serviceName == servicio.nombre && cita.precio == precioCon(servicio, cita.barberoId)
+          && loHace(servicio, cita.barberoId);
+      }
+
+      // La cita apartó su rato en el mapa del día de su barbero, en esta misma escritura: el documento de ocupación
+      // la anota con el tramo que corresponde a su hora y su duración (de 5 en 5 minutos). Lo que comprueba que ese
+      // rato estaba libre son las reglas de `ocupacion` (más abajo). Un día sin documento (o "cualquiera" como
+      // barbero) no se reserva.
+      function marcasCoherentes(id) {
+        let cita = request.resource.data;
+        let dia = getAfter(/databases/$(database)/documents/ocupacion/$(cita.barberoId + '_' + cita.dia));
         return diaValido(cita.dia)
-          && cita.hora.matches('^([01][0-9]|2[0-3]):(00|20|40)$')
-          && ids is list
-          && ids.size() > 0
-          && ids.size() <= 7
-          // Tantos bloques de 20 min como dura el servicio (una cita de 40 min ocupa 2; una de una hora, 3).
-          && cita.duracionMinutos is int
-          && ids.size() * 20 >= cita.duracionMinutos
-          && (ids.size() - 1) * 20 < cita.duracionMinutos
-          && k * 20 + cita.duracionMinutos <= 1440
-          && ids == [b + h[k], b + h[k + 1], b + h[k + 2], b + h[k + 3], b + h[k + 4], b + h[k + 5], b + h[k + 6]][0:ids.size()]
-          && bloqueDeLaCita(ids, id, 0) && bloqueDeLaCita(ids, id, 1) && bloqueDeLaCita(ids, id, 2) && bloqueDeLaCita(ids, id, 3)
-          && bloqueDeLaCita(ids, id, 4) && bloqueDeLaCita(ids, id, 5) && bloqueDeLaCita(ids, id, 6);
+          && horaValida(cita.hora)
+          && cita.duracionMinutos is int && cita.duracionMinutos > 0 && cita.duracionMinutos % 5 == 0
+          && dia != null
+          && dia.data.citas.get(id, null) == [int(minutosDe(cita.hora) / 5), int(cita.duracionMinutos / 5)];
       }
 
       // Cupo: cada reserva ocupa uno de los 3 cupos del cliente para ese día (documento cupos/{uid}_{dia}_{n},
@@ -294,26 +318,29 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/cupos/$(cita.cupoId)).data.citaId == id;
       }
 
-      // El barbero existe y ese día y a esa hora trabaja (ni es su día libre ni cae en su descanso).
+      // El barbero existe, ese día y a esa hora trabaja (ni es su día libre ni cae en su descanso) y ese servicio
+      // está habilitado con él (el admin puede abrir, por ejemplo, solo los Premium y luego los demás).
       function barberoTrabaja(cita, fecha) {
         let barbero = get(/databases/$(database)/documents/barberos/$(cita.barberoId)).data;
         let inicio = minutosDe(cita.hora);
         let descanso = barbero.get('descanso', null);
         // dayOfWeek(): 1 = lunes ... 7 = domingo. Con % 7 queda como en la app: 0 = domingo.
         return !((fecha.dayOfWeek() % 7) in barbero.get('diasLibres', []))
-          && (descanso == null || inicio >= descanso.hasta || inicio + cita.duracionMinutos <= descanso.desde);
+          && (descanso == null || inicio >= descanso.hasta || inicio + cita.duracionMinutos <= descanso.desde)
+          && !(cita.servicioId in barbero.get('serviciosCerrados', []));
       }
 
       // Ni en el pasado ni a más de 60 días (el tope de un periodo de agenda; el margen cubre la diferencia entre
-      // la hora del servidor, UTC, y la de Colombia), y con un barbero que ese día atiende.
-      // Hasta qué día exacto está abierta la agenda se comprueba al crear el cupo (agendaAbierta, más abajo): aquí
-      // no cabe, porque una cita de 7 bloques ya gasta las 10 lecturas que se permiten por escritura.
+      // la hora del servidor, UTC, y la de Colombia), y con un barbero que ese día atiende ("cualquiera" no es un
+      // barbero: no tiene agenda).
+      // Hasta qué día exacto está abierta la agenda (y qué servicios se reservan ese día) se comprueba al crear el
+      // cupo (reservaAbierta, más abajo).
       function fechaYBarberoOk() {
         let cita = request.resource.data;
         let fecha = timestamp.date(int(cita.dia[0:4]), int(cita.dia[5:7]), int(cita.dia[8:10]));
         return fecha >= request.time - duration.value(2, 'd')
           && fecha <= request.time + duration.value(62, 'd')
-          && (cita.barberoId == 'cualquiera' || barberoTrabaja(cita, fecha));
+          && barberoTrabaja(cita, fecha);
       }
 
       // La confirmación por correo solo puede ir a la cuenta de quien reserva (evita usarla para spam).
@@ -322,13 +349,47 @@ service cloud.firestore {
         return correo == '' || (correo is string && correoVerificado() && correo.lower() == emailDeLaCuenta());
       }
 
+      // Barbero: una cita suya que se agenda desde su panel (la pidieron por WhatsApp o en el local). Como las del
+      // admin, no es de ninguna cuenta ni gasta cupo; no lleva correo del cliente (no se usa para mandar correos a
+      // terceros) y va marcada `origen: 'barbero'`. Puede pasar del cierre de la barbería (las reglas no saben el
+      // horario), pero termina a más tardar a las 10:00 p. m.: LIMITE_DEL_EQUIPO en src/app/core/utils/horario.ts.
+      // La duración puede ser otra que la del catálogo (de 5 en 5); el nombre y el precio, no.
+      function citaDelBarbero(id) {
+        let cita = request.resource.data;
+        let campos = cita.keys();
+        return isBarbero() && esSuPerfil(cita.barberoId)
+          && campos.hasOnly([
+              'userId', 'userName', 'userEmail', 'phone', 'servicioId', 'serviceName', 'precio', 'duracionMinutos',
+              'barberoId', 'barberoNombre', 'dia', 'hora', 'horaStr', 'fecha', 'estado', 'creadoEn', 'origen'])
+          && campos.hasAll([
+              'userId', 'userName', 'servicioId', 'serviceName', 'precio', 'duracionMinutos', 'barberoId', 'dia', 'hora',
+              'estado', 'origen'])
+          && cita.userId == '' && cita.get('userEmail', '') == '' && cita.estado == 'pendiente' && cita.origen == 'barbero'
+          && textosAcotados()
+          && nombreYPrecioDelCatalogo()
+          && marcasCoherentes(id)
+          && minutosDe(cita.hora) + cita.duracionMinutos <= 22 * 60
+          && fechaYBarberoOk();
+      }
+
+      // Multa por no asistir (la configura el admin en Ajustes): solo en una cita "No asistió". Lo que el cliente pagó de
+      // multas va en la cita en que lo pagó, una "Hecho". Las dos, en pesos y con tope (MULTA_MAXIMA en ajustes.model.ts).
+      function multaValida() {
+        let cita = request.resource.data;
+        let multa = cita.get('multa', 0);
+        let cobrada = cita.get('multaCobrada', 0);
+        return multa is number && multa >= 0 && multa <= 1000000 && (multa == 0 || cita.estado == 'no-asistio')
+          && cobrada is number && cobrada >= 0 && cobrada <= 1000000 && (cobrada == 0 || cita.estado == 'completada');
+      }
+
       // El barbero solo gestiona sus citas: las del perfil enlazado a su correo (en barberosPrivado).
       function esSuCita() {
         return resource.data.barberoId == 'cualquiera' || esSuPerfil(resource.data.barberoId);
       }
 
-      // El cliente solo ve sus citas; el staff ve todas.
-      allow read: if esDueno() || isStaff();
+      // El cliente ve sus citas (las que reservó y las que el equipo le registró con su celular o su correo); el staff,
+      // todas. Para listar las del equipo, "Mis reservas" filtra por userId vacío y su celular o su correo.
+      allow read: if esDueno() || esDeSuContacto(resource.data) || isStaff();
 
       allow create: if (
         isAuth()
@@ -337,84 +398,177 @@ service cloud.firestore {
         && camposDeReserva()
         && textosAcotados()
         && correoPropio()
-        && bloquesCoherentes(citaId)
+        && marcasCoherentes(citaId)
         && cupoOk(citaId)
         && coincideConServicio()
         && fechaYBarberoOk()
-      ) || isAdmin();
+      ) || citaDelBarbero(citaId) || isAdmin();
+
+      // Al cancelar, el rato de la cita se suelta en la agenda en esta misma escritura: si no, quedaría ocupado para
+      // siempre (y cancelando y reservando de nuevo se podría llenar la agenda de horas fantasma). Una cita de antes
+      // del mapa (su día aún sin documento, o sin ella en la lista) no tiene nada que soltar.
+      function soltoSuRato() {
+        let dia = getAfter(/databases/$(database)/documents/ocupacion/$(resource.data.barberoId + '_' + resource.data.get('dia', '')));
+        return dia == null || !(citaId in dia.data.citas);
+      }
 
       // Cliente: solo puede cancelar una cita suya que siga activa (al reagendar, anota cuál la reemplaza).
       allow update: if (esDueno() && soloCambia(['estado', 'reemplazadaPor'])
             && request.resource.data.estado == 'cancelada'
             && resource.data.estado in ['pendiente', 'confirmada']
             && request.resource.data.get('reemplazadaPor', '') is string
-            && request.resource.data.get('reemplazadaPor', '').size() <= 40)
-        // Barbero: solo cambia el estado (completar, no asistió, cancelar) y el valor cobrado al completar.
-        || (isBarbero() && esSuCita() && soloCambia(['estado', 'precioFinal'])
+            && request.resource.data.get('reemplazadaPor', '').size() <= 40
+            && soltoSuRato())
+        // Cliente con una cita que le registró el equipo (con su celular o su correo): solo cancelarla, soltando su rato.
+        // Cambiarla de horario no (eso lo hace el equipo): la nueva sería una reserva suya, con su cupo.
+        || (esDeSuContacto(resource.data) && soloCambia(['estado'])
+            && request.resource.data.estado == 'cancelada'
+            && resource.data.estado in ['pendiente', 'confirmada']
+            && soltoSuRato())
+        // Barbero: solo cambia el estado (completar, no asistió, cancelar), el valor cobrado al completar y la multa (la
+        // que se pone al marcar "No asistió", o la que el cliente pagó en esta cita).
+        || (isBarbero() && esSuCita() && soloCambia(['estado', 'precioFinal', 'multa', 'multaCobrada'])
             && request.resource.data.estado in ['confirmada', 'completada', 'no-asistio', 'cancelada']
             && (!('precioFinal' in request.resource.data)
-                || (request.resource.data.precioFinal is number && request.resource.data.precioFinal >= 0)))
+                || (request.resource.data.precioFinal is number && request.resource.data.precioFinal >= 0))
+            && multaValida()
+            && (request.resource.data.estado != 'cancelada' || soltoSuRato()))
         || isAdmin();
 
       allow delete: if isAdmin();
     }
 
-    // ---------- slots (bloques de 20 min ocupados; sin datos personales) ----------
-    // ID determinista: {barberoId}_{YYYY-MM-DD}_{HHmm}. Dos tipos:
-    //  - de una cita:  { barberoId, dia, hora, citaId }
-    //  - bloqueo del barbero (almuerzo, permiso, día libre): { barberoId, dia, hora, bloqueo: true, motivo }
-    match /slots/{slotId} {
-      function citaTras(citaId) {
-        return getAfter(/databases/$(database)/documents/citas/$(citaId)).data;
+    // ---------- ocupacion (la agenda de cada barbero, al minuto; sin datos personales) ----------
+    // Un documento por barbero y día, {barberoId}_{YYYY-MM-DD}:
+    //  - mapa: 288 caracteres, uno por cada 5 minutos del día: '0' libre, 'c' una cita, y la letra del motivo de un
+    //    cierre del barbero (D Descanso, A Almuerzo, P Permiso, V Vacaciones, O Otro, X sin motivo);
+    //  - citas: el tramo de cada cita activa, {citaId: [primeraMarca, marcas]};
+    //  - op: qué cambió en esta escritura (lo que estas reglas revisan).
+    // Cada cambio se revisa de un golpe, sin importar cuánto dure la cita: solo se aparta lo que estaba libre y solo
+    // se suelta el tramo de una cita que se cancela. Los días los crean el admin y la Cloud Function (con las citas
+    // que ya había); un cliente no crea días, así nadie reserva sobre una cita que aún no estuviera en el mapa.
+    match /ocupacion/{diaId} {
+      function ceros() {
+        return '000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
       }
 
-      // El ID dice lo mismo que los campos, y la hora cae en la rejilla de 20 minutos (en punto, y 20 o y 40).
-      function idCoherente() {
-        let s = request.resource.data;
-        return s.barberoId is string && diaValido(s.dia) && s.hora is string
-          && s.hora.replace(':', '').matches('^([01][0-9]|2[0-3])(00|20|40)$')
-          && slotId == s.barberoId + '_' + s.dia + '_' + s.hora.replace(':', '');
+      function ces() {
+        return 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+      }
+
+      function documentoValido() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['barberoId', 'dia', 'mapa', 'citas', 'op'])
+          && d.barberoId is string && d.barberoId != 'cualquiera' && diaValido(d.dia) && diaId == d.barberoId + '_' + d.dia
+          && d.mapa is string && d.mapa.size() == 288 && d.mapa.matches('^[0cDAPVOX]*$')
+          && d.citas is map && d.op is map;
+      }
+
+      // La cita que aparta un rato: recién creada (o reagendada) para este barbero y día, del cliente que escribe o
+      // del barbero de esta agenda, que se la agendó desde su panel (sin cuenta, `origen: 'barbero'`).
+      function citaParaOcupar(c) {
+        return c.barberoId + '_' + c.dia == diaId
+          && c.estado == 'pendiente'
+          && (c.userId == request.auth.uid || (c.userId == '' && c.get('origen', '') == 'barbero' && esSuPerfil(c.barberoId)))
+          && horaValida(c.hora)
+          && c.duracionMinutos is int && c.duracionMinutos > 0 && c.duracionMinutos % 5 == 0
+          && int(minutosDe(c.hora) / 5) + int(c.duracionMinutos / 5) <= 288;
+      }
+
+      // Soltar el rato de una cita: queda cancelada en esta misma escritura, y es del cliente que escribe (la reservó, o
+      // el equipo se la registró con su celular o su correo) o del barbero de esa agenda.
+      function puedeLiberar(id) {
+        let antes = get(/databases/$(database)/documents/citas/$(id)).data;
+        let luego = getAfter(/databases/$(database)/documents/citas/$(id)).data;
+        return antes.estado in ['pendiente', 'confirmada']
+          && luego.estado == 'cancelada'
+          && antes.barberoId + '_' + antes.dia == diaId
+          && (antes.userId == request.auth.uid || esDeSuContacto(antes) || esSuPerfil(antes.barberoId));
+      }
+
+      // Los mapas se comparan con un '|' a cada lado (la marca i queda en la posición i + 1): así ningún pedazo
+      // queda vacío, que en las reglas es un error ("Index out of bound").
+      function conBordes(mapa) {
+        return '|' + mapa + '|';
+      }
+
+      // Reservar, cancelar o cambiar de horario: primero se suelta el rato de `libera` (si hay) y luego se aparta el
+      // de `ocupa` (si hay), que debe estar libre. El mapa debe quedar exactamente así, y la lista de citas cambia
+      // solo en esas dos.
+      function cambioDeCitas() {
+        let antes = resource.data;
+        let despues = request.resource.data;
+        let op = despues.op;
+        let libera = op.get('libera', '');
+        let ocupa = op.get('ocupa', '');
+        let a = conBordes(antes.mapa);
+        let suyo = libera == '' ? [0, 0] : antes.citas.get(libera, [0, 0]);
+        let medio = libera == '' ? a
+          : a[0:suyo[0] + 1] + a[suyo[0] + 1:suyo[0] + suyo[1] + 1].replace('c', '0') + a[suyo[0] + suyo[1] + 1:290];
+        let nueva = ocupa == '' ? {} : getAfter(/databases/$(database)/documents/citas/$(ocupa)).data;
+        let cambios = despues.citas.diff(antes.citas);
+        return op.get('tipo', '') == 'citas'
+          && op.keys().hasOnly(['tipo', 'libera', 'ocupa'])
+          && (libera != '' || ocupa != '')
+          && cambios.changedKeys().size() == 0
+          && cambios.removedKeys() == (libera == '' ? [] : [libera]).toSet()
+          && cambios.addedKeys() == (ocupa == '' ? [] : [ocupa]).toSet()
+          && (libera == '' || puedeLiberar(libera))
+          && (ocupa == '' ? conBordes(despues.mapa) == medio : apartaBien(nueva, ocupa, medio, despues));
+      }
+
+      // La cita nueva aparta su tramo, que estaba libre, y el mapa queda con ese tramo ocupado y nada más.
+      function apartaBien(nueva, id, medio, despues) {
+        let k = int(minutosDe(nueva.hora) / 5);
+        let n = int(nueva.duracionMinutos / 5);
+        return citaParaOcupar(nueva)
+          && medio[k + 1:k + n + 1] == ceros()[0:n]
+          && despues.citas[id] == [k, n]
+          && conBordes(despues.mapa) == medio[0:k + 1] + ces()[0:n] + medio[k + n + 1:290];
+      }
+
+      function letraDe(motivo) {
+        return {'': 'X', 'Descanso': 'D', 'Almuerzo': 'A', 'Permiso': 'P', 'Vacaciones': 'V', 'Otro': 'O'}[motivo];
+      }
+
+      // El barbero cierra lo libre de un rato de su agenda (con un motivo de la lista: lo ve cualquiera) o vuelve a
+      // abrir lo cerrado. Las citas no se tocan. Cerrar, hasta 60 días adelante.
+      function cambioDeCierres() {
+        let antes = resource.data;
+        let despues = request.resource.data;
+        let op = despues.op;
+        let desde = op.get('desde', 0);
+        let hasta = op.get('hasta', 0);
+        return op.get('tipo', '') in ['cierra', 'abre']
+          && op.keys().hasOnly(['tipo', 'desde', 'hasta', 'motivo'])
+          && desde is int && hasta is int && desde >= 0 && desde < hasta && hasta <= 288
+          && despues.citas == antes.citas
+          && esSuPerfil(antes.barberoId)
+          && (op.tipo == 'abre' || diaEnVentana(antes.dia, 61))
+          && cierraBien(conBordes(antes.mapa), conBordes(despues.mapa), op, desde, hasta);
+      }
+
+      function cierraBien(a, d, op, desde, hasta) {
+        return d == a[0:desde + 1]
+          + (op.tipo == 'cierra'
+              ? a[desde + 1:hasta + 1].replace('0', letraDe(op.get('motivo', '')))
+              : a[desde + 1:hasta + 1].replace('[DAPVOX]', '0'))
+          + a[hasta + 1:290];
       }
 
       // La disponibilidad es pública: se puede elegir día y hora antes de iniciar sesión.
       allow read: if true;
+      allow create: if documentoValido() && isAdmin();
+      allow update: if documentoValido() && (cambioDeCitas() || cambioDeCierres() || isAdmin());
+      allow delete: if isAdmin();
+    }
 
-      allow create: if idCoherente() && (
-        // De una reserva: solo junto con la cita que lo ocupa, y esa cita debe listar este bloque.
-        (isAuth()
-          && request.resource.data.keys().hasOnly(['barberoId', 'dia', 'hora', 'citaId'])
-          && request.resource.data.citaId is string
-          && citaTras(request.resource.data.citaId).userId == request.auth.uid
-          && slotId in citaTras(request.resource.data.citaId).slotIds)
-        // Bloqueo: cada barbero cierra horas de su propia agenda (hasta 60 días adelante).
-        || (request.resource.data.keys().hasOnly(['barberoId', 'dia', 'hora', 'bloqueo', 'motivo'])
-            && request.resource.data.bloqueo == true
-            && request.resource.data.get('motivo', '') in ['', 'Descanso', 'Almuerzo', 'Permiso', 'Vacaciones', 'Otro']
-            && diaEnVentana(request.resource.data.dia, 61)
-            && esSuPerfil(request.resource.data.barberoId))
-        || isAdmin()
-      );
-
-      // Un bloque ocupado no se pisa. La única excepción es el traspaso al reagendar: el cliente cancela su cita
-      // y, en el mismo batch, la nueva se queda con los bloques que coinciden.
-      allow update: if isAuth()
-        && soloCambia(['citaId'])
-        && resource.data.get('citaId', '') != ''
-        && citaTras(resource.data.citaId).userId == request.auth.uid
-        && citaTras(resource.data.citaId).estado == 'cancelada'
-        && request.resource.data.citaId is string
-        && citaTras(request.resource.data.citaId).userId == request.auth.uid
-        && slotId in citaTras(request.resource.data.citaId).slotIds;
-
-      allow delete: if
-        // De una cita cancelada: lo libera su dueño o el barbero.
-        (isAuth()
-          && resource.data.get('citaId', '') != ''
-          && citaTras(resource.data.citaId).estado == 'cancelada'
-          && (citaTras(resource.data.citaId).userId == request.auth.uid || isBarbero()))
-        // Bloqueo: lo quita su barbero.
-        || (resource.data.get('bloqueo', false) == true && esSuPerfil(resource.data.barberoId))
-        || isAdmin();
+    // ---------- slots (la agenda de antes, en bloques de 20 min) ----------
+    // Desde el 2026-10-15 la ocupación va en `ocupacion`. Los bloques viejos se leen (pestañas abiertas con la
+    // página anterior, y el admin al preparar los días) y solo el admin los borra. Nadie los escribe.
+    match /slots/{slotId} {
+      allow read: if true;
+      allow delete: if isAdmin();
     }
 
     // ---------- cupos (reservas activas de cada cliente por día; sin datos personales) ----------
@@ -430,29 +584,34 @@ service cloud.firestore {
           && citaTras(citaId).estado in ['pendiente', 'confirmada'];
       }
 
-      // La agenda la abre el admin en Ajustes (ajustes/sitio.agenda):
-      //  - 'continua' (o sin configurar): de hoy a 14 días, lo mismo que ofrece el calendario de la página;
-      //  - 'periodo': solo entre las dos fechas que habilitó, sin importar cuántos días falten.
+      // Lo que el admin abre en ajustes/sitio:
+      //  - agenda: 'continua' (o sin configurar), de hoy a 14 días, lo mismo que ofrece el calendario de la página;
+      //    'periodo', solo entre las dos fechas que habilitó, sin importar cuántos días falten;
+      //  - serviciosPorDia: los días que eligió en Citas, solo esos servicios (p. ej. el 23 de noviembre solo
+      //    Premium). Un día sin entrada deja reservar todos.
       // Va aquí y no en la cita porque toda reserva de un cliente necesita su cupo de ese mismo día (cupoOk):
-      // si el día está fuera de la agenda no hay cupo y, sin cupo, no hay cita.
+      // si el día está fuera de la agenda (o el servicio no se reserva ese día) no hay cupo y, sin cupo, no hay cita.
       // Si el documento quedó mal guardado (por periodos pero sin fechas) no pasa nadie: mejor cerrada que abierta.
-      function agendaAbierta(dia) {
+      function reservaAbierta(dia, servicioId) {
         let sitio = get(/databases/$(database)/documents/ajustes/sitio);
-        let agenda = sitio == null ? {} : sitio.data.get('agenda', {});
-        return agenda.get('modo', '') == 'periodo'
-          ? dia >= agenda.desde && dia <= agenda.hasta
-          : diaEnVentana(dia, 14);
+        let datos = sitio == null ? {} : sitio.data;
+        let agenda = datos.get('agenda', {});
+        let limites = datos.get('serviciosPorDia', {});
+        return (agenda.get('modo', '') == 'periodo'
+            ? dia >= agenda.desde && dia <= agenda.hasta
+            : diaEnVentana(dia, 14))
+          && (!(dia in limites) || servicioId in limites[dia]);
       }
 
       allow read: if isAuth() && (resource.data.userId == request.auth.uid || isStaff());
 
-      // Solo junto con la cita que lo usa, y para un día en que la agenda esté abierta.
+      // Solo junto con la cita que lo usa, y para un día en que la agenda esté abierta (y ese servicio se reserve).
       allow create: if isAuth()
         && request.resource.data.keys().hasOnly(['userId', 'dia', 'citaId'])
         && request.resource.data.userId == request.auth.uid
         && diaValido(request.resource.data.dia)
-        && agendaAbierta(request.resource.data.dia)
         && request.resource.data.citaId is string
+        && reservaAbierta(request.resource.data.dia, citaTras(request.resource.data.citaId).servicioId)
         && cupoId in [
           request.auth.uid + '_' + request.resource.data.dia + '_1',
           request.auth.uid + '_' + request.resource.data.dia + '_2',
@@ -471,27 +630,31 @@ service cloud.firestore {
     }
 
     // ---------- recurrencias (agendas recurrentes: clientes que vienen cada 1, 2 o 4 semanas) ----------
-    // Solo el admin. El panel guarda el plan; los turnos (citas y bloques) los aparta la Cloud Function
-    // programarRecurrencia con el Admin SDK, que no pasa por estas reglas. La función anota su avance en
-    // generadaHasta, procesadaEn y omitidas: desde el navegador esos campos no se escriben.
+    // El admin, las de cualquier barbero; cada barbero, solo las suyas (las de su perfil, enlazado a su correo).
+    // El equipo las ve todas (como ve las citas). El panel guarda el plan; los turnos (citas y su rato en la agenda)
+    // los aparta la Cloud Function programarRecurrencia con el Admin SDK, que no pasa por estas reglas. La función
+    // anota su avance en generadaHasta, procesadaEn y omitidas: desde el navegador esos campos no se escriben.
     match /recurrencias/{recurrenciaId} {
       function recurrenciaValida() {
         let r = request.resource.data;
         return r.keys().hasOnly([
-            'clienteNombre', 'clienteTelefono', 'servicioId', 'serviceName', 'precio', 'duracionMinutos', 'barberoId',
+            'clienteNombre', 'clienteTelefono', 'clienteCorreo', 'servicioId', 'serviceName', 'precio', 'duracionMinutos', 'barberoId',
             'barberoNombre', 'frecuencia', 'hora', 'desde', 'activa', 'creadoEn', 'actualizadoEn',
             'generadaHasta', 'procesadaEn', 'omitidas'])
           && r.clienteNombre is string && r.clienteNombre.size() > 0 && r.clienteNombre.size() <= 120
           && r.clienteTelefono is string && r.clienteTelefono.matches('^(3[0-9]{9})?$')
+          // Correo (en minúsculas) para que el cliente vea sus turnos al entrar con él. No se le envían correos.
+          && r.get('clienteCorreo', '') is string && r.get('clienteCorreo', '').size() <= 120
+          && r.get('clienteCorreo', '').matches('^([^@ A-Z]+@[^@ A-Z]+[.][^@ A-Z]+)?$')
           && r.servicioId is string && r.servicioId.size() > 0 && r.servicioId.size() <= 60
           && r.serviceName is string && r.serviceName.size() <= 120
           && r.precio is number && r.precio >= 0
-          // En bloques de 20 min, de 20 min a 4 horas, y que no pase de la medianoche.
-          && r.duracionMinutos is int && r.duracionMinutos >= 20 && r.duracionMinutos <= 240 && r.duracionMinutos % 20 == 0
+          // De 5 en 5 minutos, de 5 min a 4 horas, y que no pase de la medianoche.
+          && r.duracionMinutos is int && r.duracionMinutos >= 5 && r.duracionMinutos <= 240 && r.duracionMinutos % 5 == 0
           && r.barberoId is string && r.barberoId.size() > 0 && r.barberoId.size() <= 60
           && r.barberoNombre is string && r.barberoNombre.size() <= 80
           && r.frecuencia in ['semanal', 'quincenal', 'mensual']
-          && r.hora is string && r.hora.matches('^([01][0-9]|2[0-3]):(00|20|40)$')
+          && horaValida(r.hora)
           && minutosDe(r.hora) + r.duracionMinutos <= 1440
           && diaValido(r.desde)
           && r.activa is bool
@@ -499,14 +662,29 @@ service cloud.firestore {
           && r.actualizadoEn is string && r.actualizadoEn.size() <= 40;
       }
 
-      allow read: if isAdmin();
-      allow create: if isAdmin() && recurrenciaValida()
-        && !request.resource.data.keys().hasAny(['generadaHasta', 'procesadaEn', 'omitidas']);
+      allow read: if isStaff();
+      // Lo que guarda un barbero sale del catálogo (como en una reserva): sus turnos cuentan en las ganancias.
+      function delCatalogo() {
+        let r = request.resource.data;
+        let servicio = get(/databases/$(database)/documents/servicios/$(r.servicioId)).data;
+        return r.serviceName == servicio.nombre && r.precio == precioCon(servicio, r.barberoId) && loHace(servicio, r.barberoId);
+      }
+
+      // El barbero, como en sus citas del panel (citaDelBarbero): el turno termina a más tardar a las 10:00 p. m.
+      function aTiempo() {
+        return minutosDe(request.resource.data.hora) + request.resource.data.duracionMinutos <= 22 * 60;
+      }
+
+      allow create: if recurrenciaValida()
+        && !request.resource.data.keys().hasAny(['generadaHasta', 'procesadaEn', 'omitidas'])
+        && ((esSuPerfil(request.resource.data.barberoId) && delCatalogo() && aTiempo()) || isAdmin());
       // Cada cambio trae un `actualizadoEn` nuevo: así la función sabe que debe volver a apartar los turnos.
-      allow update: if isAdmin() && recurrenciaValida()
+      // Un barbero no le pasa su agenda a otro barbero (ni toma la de otro).
+      allow update: if recurrenciaValida()
         && request.resource.data.actualizadoEn != resource.data.actualizadoEn
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['generadaHasta', 'procesadaEn', 'omitidas', 'creadoEn']);
-      allow delete: if isAdmin();
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['generadaHasta', 'procesadaEn', 'omitidas', 'creadoEn'])
+        && ((esSuPerfil(resource.data.barberoId) && request.resource.data.barberoId == resource.data.barberoId && delCatalogo() && aTiempo()) || isAdmin());
+      allow delete: if esSuPerfil(resource.data.barberoId) || isAdmin();
     }
   }
 }

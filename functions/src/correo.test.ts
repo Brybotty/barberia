@@ -11,7 +11,7 @@ import {
 
 const negocio: Negocio = {
   nombre: 'El Acicale',
-  direccion: 'Cl. 68 Nte. #4a - 52, Calima, Cali',
+  direccion: 'Cl. 68 Nte. #4an - 52, Calima, Cali',
   mapaUrl: 'https://www.google.com/maps?cid=1',
   instagram: 'el_acicale__',
   urlSitio: 'https://elacicale.com',
@@ -68,7 +68,7 @@ test('correo del cliente: datos, botones y .ics', () => {
   const ics = Buffer.from(correo.adjuntos![0].content, 'base64').toString();
   assert.ok(ics.includes('DTSTART:20261006T193000Z'));
   assert.ok(ics.includes('DTEND:20261006T201000Z'));
-  assert.ok(ics.includes('LOCATION:Cl. 68 Nte. #4a - 52\\, Calima\\, Cali'));
+  assert.ok(ics.includes('LOCATION:Cl. 68 Nte. #4an - 52\\, Calima\\, Cali'));
 });
 
 test('correo del barbero: contacto del cliente y responder al cliente', () => {
@@ -111,6 +111,11 @@ test('el recordatorio no se manda si la reserva es reciente o no hay correo', ()
   assert.equal(necesitaRecordatorio(cita({ creadoEn: '2026-10-05T20:00:00Z' }), seisPm), false);
   assert.equal(necesitaRecordatorio(cita({ creadoEn: '2026-10-01T15:00:00Z', userEmail: '' }), seisPm), false);
   assert.equal(necesitaRecordatorio(cita({ creadoEn: '2026-10-01T15:00:00Z', estado: 'cancelada' }), seisPm), false);
+});
+
+test('el turno de una agenda recurrente no lleva recordatorio aunque tenga el correo del cliente', () => {
+  const seisPm = new Date('2026-10-05T23:00:00Z');
+  assert.equal(necesitaRecordatorio(cita({ creadoEn: '2026-10-01T15:00:00Z', recurrenciaId: 'abc123' }), seisPm), false);
 });
 
 test('correos de cancelación, cambio y recordatorio', () => {

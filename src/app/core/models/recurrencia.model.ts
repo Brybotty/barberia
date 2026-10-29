@@ -25,9 +25,28 @@ export const FRECUENCIAS: readonly OpcionFrecuencia[] = [
 /** Días hacia adelante que quedan apartados (HORIZONTE_DIAS en functions/src/recurrencias.ts). */
 export const HORIZONTE_RECURRENTES = 62;
 
-/** Duración de un turno recurrente: en bloques de 20 min, hasta 4 horas (lo mismo que aceptan las reglas). */
-export const DURACION_MINIMA = 20;
+/**
+ * Duración de un turno recurrente: de 5 en 5 minutos, hasta 4 horas (lo mismo que aceptan las reglas y la función).
+ * En la agenda ocupa justo ese rato (va al minuto, de 5 en 5): el turno siguiente entra cuando termina. Las citas que
+ * agenda el equipo desde el panel también eligen su duración así (NuevaCitaComponent).
+ */
+export const PASO_DURACION = 5;
+export const DURACION_MINIMA = PASO_DURACION;
 export const DURACION_MAXIMA = 240;
+
+/** Las duraciones que se pueden elegir, de 5 en 5 hasta `maxima`: 5, 10, 15... */
+export function duracionesHasta(maxima: number): number[] {
+  return Array.from({ length: Math.floor(maxima / PASO_DURACION) }, (_, i) => (i + 1) * PASO_DURACION);
+}
+
+/** Las de un turno recurrente: 5, 10, 15... 240. */
+export const DURACIONES: readonly number[] = duracionesHasta(DURACION_MAXIMA);
+
+/** La duración válida más cercana (p. ej. a la del catálogo): de 5 en 5 hacia arriba, entre 5 min y `maxima` (4 horas). */
+export function duracionRecurrente(minutos: number, maxima = DURACION_MAXIMA): number {
+  const redondeada = Math.ceil((Number(minutos) || 0) / PASO_DURACION) * PASO_DURACION;
+  return Math.min(maxima, Math.max(DURACION_MINIMA, redondeada));
+}
 
 export interface OmitidaRecurrente {
   dia: string;
@@ -39,10 +58,15 @@ export interface Recurrencia {
   clienteNombre: string;
   /** Celular de 10 dígitos, o vacío. */
   clienteTelefono: string;
+  /**
+   * Correo del cliente (en minúsculas), o vacío. Con él (o con el celular) el cliente ve sus turnos en "Mis reservas"
+   * si entra a la página con ese correo. No se le envían correos por sus turnos.
+   */
+  clienteCorreo?: string;
   servicioId: string;
   serviceName: string;
   precio: number;
-  /** La elige el admin al crearla: puede ser distinta de la del catálogo. */
+  /** La elige el admin al crearla (de 5 en 5): puede ser distinta de la del catálogo. */
   duracionMinutos: number;
   barberoId: string;
   barberoNombre: string;

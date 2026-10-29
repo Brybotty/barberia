@@ -2,7 +2,7 @@
 <html lang="es-CO">
 <head>
   <meta charset="utf-8">
-  <title>El Acicale · Barbería en Cali</title>
+  <title>El Acicale · Barbería en Calima, Cali</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Lo leen Google y las vistas previas de WhatsApp/Instagram/Facebook (no ejecutan el JavaScript de la app). -->
@@ -17,7 +17,7 @@
   <meta name="apple-mobile-web-app-title" content="El Acicale">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="El Acicale">
-  <meta property="og:title" content="El Acicale · Barbería en Cali">
+  <meta property="og:title" content="El Acicale · Barbería en Calima, Cali">
   <meta property="og:description" content="¡Energía, experiencia y calidad! Elige tu barbero y reserva tu turno en línea.">
   <meta property="og:locale" content="es_CO">
   <!-- Las redes exigen la dirección completa. Si cambia el dominio, cámbialo aquí, en el bloque de datos del
@@ -47,12 +47,15 @@
     @media (prefers-reduced-motion: reduce) { .arranque i { animation: none; } }
   </style>
 
-  <!-- Datos del negocio para Google (búsqueda local y Maps). No es código: es una ficha en formato JSON-LD. -->
+  <!-- Datos del negocio para Google (búsqueda local y Maps). No es código: es una ficha en formato JSON-LD.
+       El horario y los precios están escritos aquí a mano: si cambian en el panel, actualízalos también aquí. -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "BarberShop",
+    "@id": "https://elacicale.com/#barberia",
     "name": "El Acicale",
+    "alternateName": "Barbería El Acicale",
     "description": "Barbería en Calima, Cali. Cortes y barba con asesoría personalizada y reservas en línea.",
     "url": "https://elacicale.com/",
     "image": "https://elacicale.com/og-el-acicale.jpg",
@@ -60,7 +63,7 @@
     "telephone": "+573153229528",
     "address": {
       "@type": "PostalAddress",
-      "streetAddress": "Cl. 68 Nte. #4a - 52, Calima",
+      "streetAddress": "Cl. 68 Nte. #4an - 52, Calima",
       "addressLocality": "Cali",
       "addressRegion": "Valle del Cauca",
       "addressCountry": "CO"
@@ -79,6 +82,17 @@
       "closes": "19:40"
     }],
     "currenciesAccepted": "COP",
+    "priceRange": "$30.000 - $60.000",
+    "areaServed": { "@type": "City", "name": "Cali" },
+    "hasOfferCatalog": {
+      "@type": "OfferCatalog",
+      "name": "Servicios",
+      "itemListElement": [
+        { "@type": "Offer", "price": "30000", "priceCurrency": "COP", "itemOffered": { "@type": "Service", "name": "Acicale sencillo", "description": "Corte de cabello con asesoría personalizada." } },
+        { "@type": "Offer", "price": "40000", "priceCurrency": "COP", "itemOffered": { "@type": "Service", "name": "Barba2", "description": "Corte de cabello y barba con asesoría personalizada." } },
+        { "@type": "Offer", "price": "60000", "priceCurrency": "COP", "itemOffered": { "@type": "Service", "name": "Acicale Premium", "description": "Servicio completo con asesoría personalizada." } }
+      ]
+    },
     "sameAs": ["https://www.instagram.com/el_acicale__"],
     "potentialAction": {
       "@type": "ReserveAction",
@@ -94,7 +108,7 @@
     <p style="max-width:32rem;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.6;color:#e5e5e5">
       Para reservar en El Acicale activa JavaScript en tu navegador, o escríbenos por WhatsApp al 315 322 9528
       o por Instagram: @el_acicale__.
-      Estamos en Cl. 68 Nte. #4a - 52, Calima, Cali.
+      Estamos en Cl. 68 Nte. #4an - 52, Calima, Cali.
     </p>
   </noscript>
 </body>

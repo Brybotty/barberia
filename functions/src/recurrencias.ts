@@ -1,9 +1,10 @@
 /**
- * Agendas recurrentes: el plan de cada serie (qué días, qué bloques, qué cita) sin tocar la base de datos.
- * Lo que escribe en Firestore está en agenda-recurrente.ts; los disparadores, en index.ts.
+ * Agendas recurrentes: el plan de cada serie (qué días, qué cita) sin tocar la base de datos.
+ * Lo que escribe en Firestore está en agenda-recurrente.ts; los disparadores, en index.ts. El rato que ocupa cada
+ * turno en la agenda del barbero se calcula con ocupacion.ts.
  *
  * Debe coincidir con la página: src/app/core/models/recurrencia.model.ts (días de la serie) y
- * src/app/core/utils/horario.ts (bloques de 20 min, IDs de `slots`, hora de 12 h y estaLibre).
+ * src/app/core/utils/horario.ts (hora de 12 h).
  */
 
 export type Frecuencia = 'semanal' | 'quincenal' | 'mensual';
@@ -17,23 +18,29 @@ export const SEMANAS: Record<Frecuencia, number> = { semanal: 1, quincenal: 2, m
  */
 export const HORIZONTE_DIAS = 62;
 
-/** Duración de cada documento de `slots`, en minutos (BLOQUE en la página y en las reglas). */
-export const BLOQUE = 20;
+/**
+ * La duración de un turno recurrente va de 5 en 5 minutos, hasta 4 horas (lo mismo que aceptan las reglas y el
+ * panel), y ocupa en la agenda exactamente ese rato: el turno siguiente empieza cuando este termina.
+ */
+export const PASO_DURACION = 5;
+export const DURACION_MAXIMA = 240;
 
 /** Lo que guarda el panel en `recurrencias/{id}` (y lo que anota la función al apartar los turnos). */
 export interface Recurrencia {
   clienteNombre: string;
   /** Celular de 10 dígitos, o vacío. */
   clienteTelefono: string;
+  /** Correo del cliente (en minúsculas), o vacío: con él ve sus turnos en "Mis reservas". No se le envían correos. */
+  clienteCorreo?: string;
   servicioId: string;
   serviceName: string;
   precio: number;
-  /** La elige el admin (múltiplo de 20): puede ser distinta de la del catálogo. */
+  /** La elige el admin (de 5 en 5): puede ser distinta de la del catálogo. */
   duracionMinutos: number;
   barberoId: string;
   barberoNombre: string;
   frecuencia: Frecuencia;
-  /** 'HH:mm', en la rejilla de 20 min. */
+  /** 'HH:mm', en la rejilla de 5 min. */
   hora: string;
   /** Primer día de la serie ('YYYY-MM-DD'). Los demás salen de sumarle 1, 2 o 4 semanas. */
   desde: string;
@@ -69,7 +76,7 @@ export interface BarberoGuardado {
 }
 
 const ES_DIA = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
-const ES_HORA = /^([01]\d|2[0-3]):(00|20|40)$/;
+const ES_HORA = /^([01]\d|2[0-3]):[0-5][05]$/;
 
 // --- Fechas 'YYYY-MM-DD' como días de calendario (en UTC, para que ninguna zona horaria las mueva) ---
 
@@ -98,8 +105,6 @@ export function minutosDe(hora: string): number {
   return Number(hora.slice(0, 2)) * 60 + Number(hora.slice(3, 5));
 }
 
-const hora24 = (minutos: number) => `${pad(Math.floor(minutos / 60))}:${pad(minutos % 60)}`;
-
 /** '17:20' -> '5:20 PM' (lo mismo que formatearHora12 en la página). */
 export function hora12(hora: string): string {
   const minutos = minutosDe(hora);
@@ -127,48 +132,6 @@ export function fechasDeLaSerie(serie: Pick<Recurrencia, 'desde' | 'frecuencia'>
   return fechas;
 }
 
-// --- Bloques de la agenda (colección `slots`) ---
-
-export function idDeSlot(barberoId: string, dia: string, minutos: number): string {
-  return `${barberoId}_${dia}_${hora24(minutos).replace(':', '')}`;
-}
-
-/** Bloques de 20 min que ocupa el turno: uno de 60 min a las 10:00 ocupa 10:00, 10:20 y 10:40. */
-export function bloquesDelTurno(barberoId: string, dia: string, hora: string, duracion: number): { id: string; hora: string }[] {
-  const inicio = minutosDe(hora);
-  const bloques: { id: string; hora: string }[] = [];
-  for (let t = inicio; t < inicio + duracion; t += BLOQUE) bloques.push({ id: idDeSlot(barberoId, dia, t), hora: hora24(t) });
-  return bloques;
-}
-
-/**
- * Los bloques que hay que mirar para saber si el turno está libre: los suyos y los "de y media" que dejaron las
- * citas guardadas antes del cambio a bloques de 20 min (con la hora en punto que les sigue). Ver estaLibre.
- */
-export function bloquesAConsultar(barberoId: string, dia: string, hora: string, duracion: number): string[] {
-  const inicio = minutosDe(hora);
-  const fin = inicio + Math.ceil(duracion / BLOQUE) * BLOQUE;
-  const ids = bloquesDelTurno(barberoId, dia, hora, duracion).map(b => b.id);
-  for (let yMedia = Math.floor(inicio / 60) * 60 - 90; yMedia < fin; yMedia += 60) {
-    if (yMedia < 0) continue;
-    ids.push(idDeSlot(barberoId, dia, yMedia), idDeSlot(barberoId, dia, yMedia + 30));
-  }
-  return [...new Set(ids)];
-}
-
-/** ¿El turno está libre, dados los bloques que ya existen? Copia de estaLibre en src/app/core/utils/horario.ts. */
-export function estaLibre(barberoId: string, dia: string, hora: string, duracion: number, ocupados: ReadonlySet<string>): boolean {
-  if (bloquesDelTurno(barberoId, dia, hora, duracion).some(b => ocupados.has(b.id))) return false;
-  const inicio = minutosDe(hora);
-  const fin = inicio + Math.ceil(duracion / BLOQUE) * BLOQUE;
-  for (let yMedia = Math.floor(inicio / 60) * 60 - 90; yMedia < fin; yMedia += 60) {
-    if (!ocupados.has(idDeSlot(barberoId, dia, yMedia))) continue;
-    if (yMedia + 30 > inicio) return false;
-    if (yMedia + 60 > inicio && ocupados.has(idDeSlot(barberoId, dia, yMedia + 30))) return false;
-  }
-  return true;
-}
-
 // --- La cita de cada día ---
 
 /** ID fijo de la cita de un día de la serie: así una serie nunca agenda dos veces el mismo día. */
@@ -180,7 +143,8 @@ const primerNombre = (nombre: string | undefined) => (nombre ?? '').trim().split
 
 /**
  * Por qué ese día no se agenda, o null si se puede. Aquí solo lo que se sabe sin mirar la agenda: la barbería
- * cerrada, el día libre o el descanso del barbero. Lo ya ocupado se mira al agendar (en una transacción).
+ * cerrada, el día libre o el descanso del barbero. Lo ya ocupado se mira al agendar (en una transacción, en el mapa
+ * de ese día).
  */
 export function motivoParaOmitir(dia: string, serie: Recurrencia, horario: HorarioGuardado | undefined, barbero: BarberoGuardado | undefined): string | null {
   if (!barbero) return `${serie.barberoNombre || 'El barbero'} ya no está en el equipo`;
@@ -208,7 +172,9 @@ export function citaDeLaSerie(serie: Recurrencia, recurrenciaId: string, dia: st
   return {
     userId: '',
     userName: serie.clienteNombre,
-    userEmail: '',
+    // Para que el cliente vea el turno en "Mis reservas" al entrar con ese correo (o con el celular). Los turnos
+    // recurrentes no envían correos: ni al crearse ni al cambiar (index.ts) ni el recordatorio (necesitaRecordatorio).
+    userEmail: (serie.clienteCorreo ?? '').trim().toLowerCase(),
     phone: serie.clienteTelefono,
     servicioId: serie.servicioId,
     serviceName: serie.serviceName,
@@ -222,7 +188,6 @@ export function citaDeLaSerie(serie: Recurrencia, recurrenciaId: string, dia: st
     fecha: inicioDelTurno(dia, serie.hora).toISOString(),
     estado: 'pendiente',
     creadoEn: ahora.toISOString(),
-    slotIds: bloquesDelTurno(serie.barberoId, dia, serie.hora, serie.duracionMinutos).map(b => b.id),
     recurrenciaId,
     frecuencia: serie.frecuencia,
   };
@@ -236,7 +201,8 @@ export function esValida(serie: Partial<Recurrencia> | undefined): serie is Recu
     && typeof serie.frecuencia === 'string' && serie.frecuencia in SEMANAS
     && typeof serie.hora === 'string' && ES_HORA.test(serie.hora)
     && typeof serie.desde === 'string' && ES_DIA.test(serie.desde)
-    && Number.isInteger(serie.duracionMinutos) && serie.duracionMinutos! >= BLOQUE && serie.duracionMinutos! % BLOQUE === 0
+    && Number.isInteger(serie.duracionMinutos) && serie.duracionMinutos! >= PASO_DURACION && serie.duracionMinutos! <= DURACION_MAXIMA
+    && serie.duracionMinutos! % PASO_DURACION === 0
     && minutosDe(serie.hora) + serie.duracionMinutos! <= 24 * 60
     && typeof serie.actualizadoEn === 'string';
 }

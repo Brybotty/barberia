@@ -1,4 +1,4 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { CurrencyPipe, NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
@@ -8,26 +8,34 @@ import { BarberosService } from '../../../core/services/barberos.service';
 import { CitasService } from '../../../core/services/citas.service';
 import { ConfirmarService } from '../../../core/services/confirmar.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { OcupacionService } from '../../../core/services/ocupacion.service';
 import { RecurrenciasService } from '../../../core/services/recurrencias.service';
 import { ServiciosService } from '../../../core/services/servicios.service';
 import { UsuariosService } from '../../../core/services/usuarios.service';
 import { BarberoPublico, avatarDe } from '../../../core/models/barbero.model';
 import { Cita, esActiva } from '../../../core/models/cita.model';
 import {
-  DURACION_MAXIMA, DURACION_MINIMA, DatosRecurrencia, FRECUENCIAS, Frecuencia, HORIZONTE_RECURRENTES, OmitidaRecurrente, OpcionFrecuencia,
-  Recurrencia, estaAlDia, fechasDeLaSerie, opcionDe, proximosDias,
+  DatosRecurrencia, FRECUENCIAS, Frecuencia, HORIZONTE_RECURRENTES, OmitidaRecurrente, OpcionFrecuencia, Recurrencia, duracionRecurrente,
+  estaAlDia, fechasDeLaSerie, opcionDe, proximosDias,
 } from '../../../core/models/recurrencia.model';
-import { Servicio, iconoDe } from '../../../core/models/servicio.model';
+import { Servicio, esDelMenuDe, iconoDe, precioCon } from '../../../core/models/servicio.model';
 import { Usuario } from '../../../core/models/usuario.model';
 import {
-  BLOQUE, INTERVALO, Slot, aperturaDe, claveDia, compararCitas, diaDeCita, duracionDe, estaCerrado, estaLibre, fechaCorta, fechaDesdeClave,
+  INTERVALO, LIMITE_DEL_EQUIPO, aperturaDe, claveDia, compararCitas, diaDeCita, duracionDe, estaCerrado, fechaCorta, fechaDesdeClave,
   formatearHora12, inicioDeCita, minutosAHora24, parsearHora, sumarDias,
 } from '../../../core/utils/horario';
+import { MARCA, Ocupacion, armarOcupacion, estaLibreEn, sinCitas, turnosEncadenados } from '../../../core/utils/ocupacion';
 import { enlaceWhatsApp, esCelularValido, formatoCelular, limpiarCelular } from '../../../core/utils/colombia';
+import { ElegirDuracionComponent } from '../../../shared/components/elegir-duracion/elegir-duracion.component';
 import { IconoComponent } from '../../../shared/components/icono/icono.component';
+import { CaritaComponent } from '../../../shared/components/carita/carita.component';
+import { ResumenAsistencia, claveCliente, resumirAsistencia } from '../../../core/utils/asistencia';
 import { RedSocialComponent } from '../../../shared/components/red-social/red-social.component';
+import { DuracionPipe } from '../../../shared/pipes/duracion.pipe';
 
 type Paso = 'cliente' | 'servicio' | 'detalles';
+
+const CORREO_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Un cliente para elegir: sale de las citas, de las cuentas registradas y de las agendas recurrentes. */
 interface Contacto {
@@ -38,6 +46,8 @@ interface Contacto {
   telefono: string;
   /** Correo de su cuenta, si no hay celular. */
   detalle: string;
+  /** Su correo (de su cuenta, de una reserva o de otra agenda), o vacío: con él ve sus turnos en "Mis reservas". */
+  correo: string;
   /** Agendas recurrentes activas que ya tiene. */
   fijas: number;
   reciente: string;
@@ -75,21 +85,26 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
 
 /**
  * Agendas recurrentes: clientes que vienen cada semana, cada 2 semanas o cada 4 semanas, el mismo día y a la misma
- * hora. El admin las crea con el botón flotante (cliente → servicio → barbero, frecuencia, día, duración y hora) y
- * la Cloud Function programarRecurrencia aparta sus turnos en la agenda, como cualquier reserva: los clientes ya no
- * pueden tomar esas horas, y cada turno se marca como hecho o "no asistió" para que cuente en las ganancias.
+ * hora. Se crean con el botón flotante (cliente → servicio → barbero, frecuencia, día, duración y hora) y la Cloud
+ * Function programarRecurrencia aparta sus turnos en la agenda, como cualquier reserva: los clientes ya no pueden
+ * tomar esas horas, y cada turno se marca como hecho o "no asistió" para que cuente en las ganancias.
+ *
+ * El admin ve y crea las de todos. En el panel del barbero (`barberoFijo`), cada barbero ve y crea solo las suyas
+ * (las reglas no le dejan tocar las de otro).
  */
 @Component({
   selector: 'app-admin-recurrentes',
   standalone: true,
-  imports: [CurrencyPipe, NgClass, FormsModule, IconoComponent, RedSocialComponent],
+  imports: [CurrencyPipe, NgClass, FormsModule, IconoComponent, RedSocialComponent, DuracionPipe, ElegirDuracionComponent, CaritaComponent],
   host: { '(document:keydown.escape)': 'abierto() && cerrar()' },
   template: `
     <div class="animate-in fade-in duration-500 pb-20 md:pb-0">
       <div class="mb-8 flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <h2 class="titulo-panel">Agendas recurrentes</h2>
-          <p class="mt-1 max-w-2xl text-neutral-400">Para los clientes que vienen cada semana, cada 2 semanas o cada 4 semanas, el mismo día y a la misma hora. Sus turnos quedan apartados solos en la agenda.</p>
+          <h2 class="titulo-panel">{{ barberoFijo() ? 'Mis agendas recurrentes' : 'Agendas recurrentes' }}</h2>
+          <p class="mt-1 max-w-2xl text-neutral-400">
+            {{ barberoFijo() ? 'Tus clientes fijos' : 'Para los clientes' }} que vienen cada semana, cada 2 semanas o cada 4 semanas, el mismo día y a la misma hora. Sus turnos quedan apartados solos en la agenda.
+          </p>
         </div>
         <button type="button" (click)="abrirNueva()" class="boton-acento hidden md:inline-flex">
           <app-icono nombre="mas" class="h-4 w-4" [grosor]="2.4" /> Nueva agenda recurrente
@@ -118,7 +133,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
             <p class="mt-4 font-bold text-white">Este barbero no tiene agendas recurrentes</p>
           } @else {
             <p class="mt-4 font-bold text-white">Aún no hay agendas recurrentes</p>
-            <p class="mx-auto mt-1 max-w-md text-sm text-neutral-500">Crea una para cada cliente fijo: elige el corte, el barbero, cada cuánto viene, el día y la hora. Un mismo cliente puede tener varias.</p>
+            <p class="mx-auto mt-1 max-w-md text-sm text-neutral-500">Crea una para cada cliente fijo: elige el corte, {{ barberoFijo() ? '' : 'el barbero, ' }}cada cuánto viene, el día y la hora. Un mismo cliente puede tener varias.</p>
             <button type="button" (click)="abrirNueva()" class="boton-acento mt-6">
               <app-icono nombre="mas" class="h-4 w-4" [grosor]="2.4" /> Crear la primera
             </button>
@@ -135,7 +150,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                       <app-icono nombre="repetir" class="h-4 w-4" [grosor]="2" /> {{ t.frecuencia.nombre }}
                       @if (!t.r.activa) { <span class="chip-neutro">En pausa</span> }
                     </p>
-                    <h3 class="mt-2 truncate text-lg font-black">{{ t.r.clienteNombre }}</h3>
+                    <h3 class="mt-2 flex min-w-0 items-center gap-2"><span class="truncate text-lg font-black">{{ t.r.clienteNombre }}</span> <app-carita [resumen]="asistenciaDe(t.r)" [conTexto]="true" /></h3>
                     @if (t.r.clienteTelefono) {
                       <a [href]="whatsapp(t.r.clienteTelefono)" target="_blank" rel="noopener" class="enlace-toque text-sm font-semibold text-emerald-300 hover:text-emerald-200"
                          [attr.aria-label]="'Escribirle a ' + t.r.clienteNombre + ' por WhatsApp'">
@@ -158,7 +173,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                 <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div class="col-span-2">
                     <dt class="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">Servicio</dt>
-                    <dd class="font-bold">{{ t.r.serviceName }} <span class="font-semibold text-neutral-500">· {{ t.r.duracionMinutos }} min</span></dd>
+                    <dd class="font-bold">{{ t.r.serviceName }} <span class="font-semibold text-neutral-500">· {{ t.r.duracionMinutos | duracion }}</span></dd>
                   </div>
                   <div>
                     <dt class="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">Día</dt>
@@ -275,7 +290,14 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                              [class.campo-error]="intentoCliente() && !celularValido()" placeholder="300 123 4567">
                       @if (intentoCliente() && !celularValido()) { <span class="texto-error">10 dígitos, empezando por 3.</span> }
                     </label>
+                    <label class="block sm:col-span-2">
+                      <span class="etiqueta">Correo (opcional)</span>
+                      <input type="email" name="nuevoCorreo" [ngModel]="correo()" (ngModelChange)="correo.set($event)" maxlength="120" autocomplete="off" class="campo"
+                             [class.campo-error]="intentoCliente() && !correoValido()" placeholder="cliente@correo.com">
+                      @if (intentoCliente() && !correoValido()) { <span class="texto-error">Revisa el correo.</span> }
+                    </label>
                   </div>
+                  <p class="ayuda">Si entra a la página con ese celular o ese correo, verá sus turnos en "Mis reservas". No se le envían correos.</p>
                   <div class="mt-4 flex justify-end gap-2">
                     <button type="button" (click)="creandoCliente.set(false)" class="boton-linea boton-chico">Cancelar</button>
                     <button type="button" (click)="usarClienteNuevo()" class="boton-acento boton-chico">Continuar</button>
@@ -300,7 +322,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                         <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] font-display text-sm font-bold uppercase text-neutral-300">{{ c.nombre.charAt(0) }}</span>
                         <span class="min-w-0 flex-1">
                           <span class="block truncate font-bold text-white">{{ c.nombre }} </span>
-                          <span class="block truncate text-sm text-neutral-500">{{ c.telefono ? '+57 ' + celular(c.telefono) : (c.detalle || 'Sin celular') }}</span>
+                          <span class="block truncate text-sm text-neutral-500">{{ c.telefono ? '+57 ' + celular(c.telefono) : (c.detalle || c.correo || 'Sin celular') }}</span>
                         </span>
                         @if (c.fijas) { <span class="chip-oro shrink-0">{{ c.fijas === 1 ? 'Fijo' : c.fijas + ' fijas' }}</span> }
                       </button>
@@ -318,11 +340,11 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
               <p class="text-sm text-neutral-400">
                 @if (nombre().trim()) { Para <strong class="text-white">{{ nombre().trim() }}</strong>. } ¿Qué servicio se hace en cada turno?
               </p>
-              @if (servicios().length === 0) {
+              @if (serviciosDelMenu().length === 0) {
                 <p class="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-neutral-500">Aún no hay servicios. Agrégalos en Servicios y precios.</p>
               }
               <ul class="mt-4 space-y-2">
-                @for (s of servicios(); track s.id) {
+                @for (s of serviciosDelMenu(); track s.id) {
                   <li>
                     <button type="button" (click)="elegirServicio(s)" [attr.aria-pressed]="s.id === servicioId()"
                             class="flex w-full items-center gap-4 rounded-2xl border bg-white/[0.03] p-4 text-left transition-colors hover:border-detalle-400/50"
@@ -334,7 +356,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                         <span class="block truncate font-bold text-white">{{ s.nombre }}</span>
                         <span class="block text-sm text-neutral-500">{{ duracionDe(s) }} minutos aprox.</span>
                       </span>
-                      <span class="shrink-0 font-bold tabular-nums text-neutral-200">{{ s.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+                      <span class="shrink-0 font-bold tabular-nums text-neutral-200">{{ precioEnLista(s) | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
                     </button>
                   </li>
                 }
@@ -349,7 +371,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                 </span>
                 <div class="min-w-0 flex-1">
                   <p class="truncate font-bold">{{ servicio()?.nombre ?? 'Sin servicio' }}</p>
-                  <p class="text-xs text-neutral-500">{{ duracionCatalogo() }} minutos aprox.@if (servicio()) { · {{ servicio()!.precio | currency:'COP':'symbol-narrow':'1.0-0' }} }</p>
+                  <p class="text-xs text-neutral-500">{{ duracionCatalogo() }} minutos aprox.@if (servicio()) { · {{ precio() | currency:'COP':'symbol-narrow':'1.0-0' }} }</p>
                 </div>
                 <button type="button" (click)="paso.set('servicio')" class="boton-linea boton-chico shrink-0">Cambiar</button>
               </div>
@@ -360,7 +382,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                   <p class="text-sm text-neutral-500">Aún no hay barberos. Agrégalos en Equipo.</p>
                 }
                 <div class="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-hide">
-                  @for (b of barberos(); track b.id) {
+                  @for (b of barberosDelServicio(); track b.id) {
                     <button type="button" (click)="elegirBarbero(b.id!)" [attr.aria-pressed]="b.id === barberoId()" class="flex w-20 shrink-0 flex-col items-center gap-1.5 text-center">
                       <img [src]="avatarDe(b)" alt="" class="h-16 w-16 rounded-full border-2 object-cover object-[50%_25%] transition-all"
                            [ngClass]="b.id === barberoId() ? 'border-detalle-400 ring-2 ring-detalle-400/30' : 'border-white/10 opacity-60'">
@@ -415,26 +437,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                 </fieldset>
               }
 
-              <div class="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-white/10 p-3">
-                <div class="min-w-0">
-                  <p class="text-sm font-bold">Duración del servicio</p>
-                  <p class="text-xs text-neutral-500">
-                    {{ duracion() !== duracionCatalogo() ? 'Normalmente dura ' + duracionCatalogo() + ' min.' : 'La del catálogo. Cámbiala si este cliente tarda más o menos.' }}
-                  </p>
-                  @if (duracion() !== duracionCatalogo()) {
-                    <button type="button" (click)="duracion.set(duracionCatalogo())" class="enlace-toque text-xs font-bold text-detalle-200 hover:text-white">Volver a {{ duracionCatalogo() }} min</button>
-                  }
-                </div>
-                <div class="flex shrink-0 items-center gap-1">
-                  <button type="button" (click)="cambiarDuracion(-bloque)" [disabled]="duracion() <= duracionMinima" class="boton-icono disabled:opacity-30" aria-label="20 minutos menos">
-                    <app-icono nombre="menos" class="h-4 w-4" [grosor]="2.4" />
-                  </button>
-                  <span class="w-16 text-center font-display text-base font-black tabular-nums" aria-live="polite">{{ duracion() }} min</span>
-                  <button type="button" (click)="cambiarDuracion(bloque)" [disabled]="duracion() >= duracionMaxima" class="boton-icono disabled:opacity-30" aria-label="20 minutos más">
-                    <app-icono nombre="mas" class="h-4 w-4" [grosor]="2.4" />
-                  </button>
-                </div>
-              </div>
+              <app-elegir-duracion class="mt-6" [(duracion)]="duracion" [catalogo]="duracionCatalogo()" campoId="recurrente-duracion" />
 
               @if (diaSemana() !== null && desde()) {
                 <fieldset class="mt-6">
@@ -444,10 +447,13 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                       @for (i of [1, 2, 3, 4, 5, 6]; track i) { <div class="h-14 animate-pulse rounded-xl bg-white/[0.04]"></div> }
                     </div>
                   } @else if (horas().length === 0) {
-                    <p class="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-neutral-500">No hay horas ese día para un servicio de {{ duracion() }} min.</p>
+                    <p class="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-neutral-500">No hay horas ese día para un servicio de {{ duracion() | duracion }}.</p>
                   } @else {
                     <div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
                       @for (h of horas(); track h.minutos) {
+                        @if (h.minutos === primeraDespuesDelCierre()) {
+                          <p class="col-span-full mt-2 text-xs font-bold uppercase tracking-wider text-neutral-400" data-grupo="despues-del-cierre">Después del cierre (hasta las {{ limite }})</p>
+                        }
                         <button type="button" (click)="minutos.set(h.minutos)" [disabled]="!h.elegible" [attr.aria-pressed]="h.minutos === minutos()"
                                 class="flex min-h-14 flex-col items-center justify-center rounded-xl border px-1 text-center transition-colors disabled:cursor-not-allowed"
                                 [ngClass]="claseHora(h)">
@@ -456,9 +462,9 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                         </button>
                       }
                     </div>
-                    <p class="ayuda">"Ocupada" es que el barbero ya tiene otra cita o cerró ese rato en todas las fechas. Si solo algunas están ocupadas, esas no se apartan.</p>
+                    <p class="ayuda">Los turnos van seguidos: empiezan cuando abre la barbería o justo cuando termina la cita anterior, sin tiempo muerto. "Ocupada" es que el barbero ya tiene otra cita o cerró ese rato en todas las fechas; si solo algunas están ocupadas, esas no se apartan.</p>
                     <button type="button" (click)="masHoras.set(!masHoras())" class="enlace-toque text-xs font-bold text-detalle-200 hover:text-white">
-                      {{ masHoras() ? 'Ver solo los turnos de la agenda (cada 40 min)' : 'Ver más horas (cada 20 min)' }}
+                      {{ masHoras() ? 'Ver solo los turnos seguidos' : 'Ver más horas (cada 5 min)' }}
                     </button>
                   }
                 </fieldset>
@@ -475,6 +481,12 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                   <input type="tel" name="clienteCelular" [ngModel]="telefono()" (ngModelChange)="telefono.set($event)" maxlength="25" inputmode="numeric" autocomplete="off" class="campo"
                          [class.campo-error]="intento() && !celularValido()" placeholder="300 123 4567">
                 </label>
+                <label class="block sm:col-span-2">
+                  <span class="etiqueta">Correo (opcional)</span>
+                  <input type="email" name="clienteCorreo" [ngModel]="correo()" (ngModelChange)="correo.set($event)" maxlength="120" autocomplete="off" class="campo"
+                         [class.campo-error]="intento() && !correoValido()" placeholder="cliente@correo.com">
+                  <span class="ayuda">Si el cliente entra a la página con ese celular o ese correo, verá sus turnos en "Mis reservas". No se le envían correos.</span>
+                </label>
               </div>
 
               @if (vistaPrevia(); as v) {
@@ -484,7 +496,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
                       Se {{ v.agendadas.length === 1 ? 'aparta 1 turno' : 'apartan ' + v.agendadas.length + ' turnos' }}:
                       <span class="font-semibold text-neutral-300">{{ v.lista }}</span>
                     </p>
-                    <p class="mt-1 text-neutral-400">Después se siguen apartando solos, {{ opcion().detalle.toLowerCase() }}, a las {{ v.hora }}.</p>
+                    <p class="mt-1 text-neutral-400">Después se siguen apartando solos, {{ opcion().detalle.toLowerCase() }}, de {{ v.hora }} a {{ v.fin }}.</p>
                   } @else {
                     <p class="font-bold text-white">Por ahora no se aparta ningún turno.</p>
                   }
@@ -522,6 +534,7 @@ const normalizar = (texto: string) => texto.normalize('NFD').replace(/\p{Diacrit
 export class AdminRecurrentesComponent {
   private recurrencias = inject(RecurrenciasService);
   private citasService = inject(CitasService);
+  private ocupacion = inject(OcupacionService);
   private ajustes = inject(AjustesService);
   private usuariosService = inject(UsuariosService);
   private notificaciones = inject(NotificationService);
@@ -532,21 +545,42 @@ export class AdminRecurrentesComponent {
   readonly iconoDe = iconoDe;
   readonly duracionDe = duracionDe;
   readonly corta = fechaCorta;
-  readonly bloque = BLOQUE;
-  readonly duracionMinima = DURACION_MINIMA;
-  readonly duracionMaxima = DURACION_MAXIMA;
+  /** En el panel del barbero: el suyo. Solo ve y crea sus agendas, y solo con él. */
+  readonly barberoFijo = input<BarberoPublico | null>(null);
+
   readonly aLaVista = CONTACTOS_A_LA_VISTA;
   readonly hoy = claveDia(new Date());
   /** Último día que la función deja apartado. */
   private readonly fin = sumarDias(this.hoy, HORIZONTE_RECURRENTES);
 
+  private readonly fijo$ = toObservable(this.barberoFijo).pipe(map(b => b?.id ?? ''), distinctUntilChanged());
   /** undefined mientras carga. */
-  readonly lista = toSignal(this.recurrencias.listar().pipe(catchError(error => {
-    console.error('Error cargando las agendas recurrentes', error);
-    return of<Recurrencia[]>([]);
-  })));
-  private readonly citas = toSignal(this.citasService.todas().pipe(catchError(() => of<Cita[]>([]))), { initialValue: [] as Cita[] });
-  readonly barberos = toSignal(inject(BarberosService).listar().pipe(catchError(() => of<BarberoPublico[]>([]))), { initialValue: [] as BarberoPublico[] });
+  readonly lista = toSignal(this.fijo$.pipe(
+    switchMap(id => (id ? this.recurrencias.delBarbero(id) : this.recurrencias.listar())),
+    catchError(error => {
+      console.error('Error cargando las agendas recurrentes', error);
+      return of<Recurrencia[]>([]);
+    }),
+  ));
+  private readonly citas = toSignal(this.fijo$.pipe(
+    switchMap(id => (id ? this.citasService.deBarberos([id]) : this.citasService.todas())),
+    catchError(() => of<Cita[]>([])),
+  ), { initialValue: [] as Cita[] });
+  /** Los "No asistió" de toda la barbería: la carita del cliente fijo cuenta también sus faltas con otro barbero. */
+  private readonly faltas = toSignal(this.citasService.noAsistieron().pipe(catchError(() => of<Cita[]>([]))), { initialValue: [] as Cita[] });
+  /** Las caritas de asistencia (ver utils/asistencia.ts): sus turnos recurrentes cuentan como cualquier cita. */
+  private readonly asistencia = computed(() => resumirAsistencia(this.citas(), this.faltas()));
+
+  asistenciaDe(r: Recurrencia): ResumenAsistencia | undefined {
+    const clave = claveCliente({ phone: r.clienteTelefono, userName: r.clienteNombre });
+    return clave ? this.asistencia().get(clave) : undefined;
+  }
+
+  private readonly barberosService = inject(BarberosService);
+  readonly barberos = toSignal(this.fijo$.pipe(
+    switchMap(id => this.barberosService.listar().pipe(map(lista => (id ? lista.filter(b => b.id === id) : lista)))),
+    catchError(() => of<BarberoPublico[]>([])),
+  ), { initialValue: [] as BarberoPublico[] });
   readonly servicios = toSignal(inject(ServiciosService).actuales().pipe(catchError(() => of<Servicio[]>([]))), { initialValue: [] as Servicio[] });
   /** Las cuentas registradas se piden solo al buscar un cliente (cada una es una lectura). */
   private readonly usuarios = signal<Usuario[]>([]);
@@ -593,6 +627,7 @@ export class AdminRecurrentesComponent {
   readonly intentoCliente = signal(false);
   readonly nombre = signal('');
   readonly telefono = signal('');
+  readonly correo = signal('');
   readonly servicioId = signal('');
   readonly barberoId = signal('');
   readonly frecuencia = signal<Frecuencia>('semanal');
@@ -610,31 +645,49 @@ export class AdminRecurrentesComponent {
   readonly nombrePaso = computed(() => ({ cliente: 'Cliente', servicio: 'Servicio', detalles: 'Agenda' })[this.paso()]);
   readonly puedeVolver = computed(() => this.paso() === 'servicio' || (this.paso() === 'detalles' && !this.editando()));
 
+  /** Los que se pueden elegir: en el panel del barbero, los de su menú (no los servicios propios de otro). */
+  readonly serviciosDelMenu = computed(() => {
+    const fijo = this.barberoFijo();
+    return fijo ? this.servicios().filter(s => esDelMenuDe(s, fijo.id)) : this.servicios();
+  });
   readonly servicio = computed(() => this.servicios().find(s => s.id === this.servicioId()));
-  readonly barbero = computed(() => this.barberos().find(b => b.id === this.barberoId()));
+  /** Los barberos que hacen el servicio elegido (uno propio de un barbero, solo él). */
+  readonly barberosDelServicio = computed(() => {
+    const servicio = this.servicio();
+    return servicio ? this.barberos().filter(b => esDelMenuDe(servicio, b.id)) : this.barberos();
+  });
+  readonly barbero = computed(() => this.barberosDelServicio().find(b => b.id === this.barberoId()));
+  /** Lo que se cobra en cada turno: el precio de ese barbero (el suyo propio, si tiene). */
+  readonly precio = computed(() => (this.servicio() ? precioCon(this.servicio()!, this.barberoId()) : 0));
   readonly opcion = computed(() => opcionDe(this.frecuencia()) ?? FRECUENCIAS[0]);
   readonly duracionCatalogo = computed(() => (this.servicio() ? duracionDe(this.servicio()!) : INTERVALO));
   readonly celularValido = computed(() => !this.telefono().trim() || esCelularValido(this.telefono()));
+  readonly correoValido = computed(() => !this.correo().trim() || CORREO_VALIDO.test(this.correo().trim()));
 
   /** Clientes para elegir: de las citas, de las cuentas registradas y de las agendas recurrentes, sin repetir. */
   readonly contactos = computed<Contacto[]>(() => {
     const porClave = new Map<string, Contacto>();
     const clave = (nombre: string, telefono: string) => telefono || normalizar(nombre);
-    const agregar = (nombre: string | undefined, telefono: string | undefined, reciente: string, detalle = '') => {
+    const agregar = (nombre: string | undefined, telefono: string | undefined, reciente: string, detalle = '', correo = '') => {
       const limpio = (nombre ?? '').trim().replace(/\s+/g, ' ');
       if (!limpio) return;
       const numero = limpiarCelular(telefono ?? '');
       const celular = /^3\d{9}$/.test(numero) ? numero : '';
       const id = clave(limpio, celular);
       const previo = porClave.get(id);
+      const suCorreo = CORREO_VALIDO.test(correo.trim()) ? correo.trim().toLowerCase() : '';
       // Se queda el nombre más reciente (puede que lo hayan corregido).
-      if (!previo || reciente > previo.reciente) porClave.set(id, { clave: id, nombre: limpio, telefono: celular, detalle: detalle || previo?.detalle || '', fijas: 0, reciente });
-      else if (detalle && !previo.detalle) previo.detalle = detalle;
+      if (!previo || reciente > previo.reciente) {
+        porClave.set(id, { clave: id, nombre: limpio, telefono: celular, detalle: detalle || previo?.detalle || '', correo: suCorreo || previo?.correo || '', fijas: 0, reciente });
+      } else {
+        if (detalle && !previo.detalle) previo.detalle = detalle;
+        if (suCorreo && !previo.correo) previo.correo = suCorreo;
+      }
     };
-    for (const c of this.citas()) agregar(c.userName, c.phone, c.fecha ?? c.creadoEn ?? '');
-    for (const u of this.usuarios()) if ((u.rol ?? 'cliente') === 'cliente') agregar(u.nombre, u.telefono, '', u.email ?? '');
+    for (const c of this.citas()) agregar(c.userName, c.phone, c.fecha ?? c.creadoEn ?? '', '', c.userEmail ?? '');
+    for (const u of this.usuarios()) if ((u.rol ?? 'cliente') === 'cliente') agregar(u.nombre, u.telefono, '', u.email ?? '', u.email ?? '');
     const recurrentes = this.lista() ?? [];
-    for (const r of recurrentes) agregar(r.clienteNombre, r.clienteTelefono, r.actualizadoEn);
+    for (const r of recurrentes) agregar(r.clienteNombre, r.clienteTelefono, r.actualizadoEn, '', r.clienteCorreo ?? '');
     for (const r of recurrentes) {
       const contacto = porClave.get(clave(r.clienteNombre.trim().replace(/\s+/g, ' '), r.clienteTelefono));
       if (contacto && r.activa) contacto.fijas++;
@@ -679,52 +732,68 @@ export class AdminRecurrentesComponent {
     return fechasDeLaSerie(desde, this.frecuencia(), desde > this.hoy ? desde : this.hoy, this.fin);
   });
 
-  /** Bloques ocupados en esos días, en vivo: si alguien reserva mientras tanto, la hora se marca ocupada. null mientras llegan. */
+  /**
+   * La agenda del barbero en esos días, en vivo: si alguien reserva mientras tanto, la hora se marca ocupada.
+   * null mientras llega.
+   */
   readonly ocupados = toSignal(
-    toObservable(this.fechasSerie).pipe(
-      map(dias => dias.join(',')),
+    toObservable(computed(() => `${this.barberoId()}|${this.fechasSerie().join(',')}`)).pipe(
       distinctUntilChanged(),
-      switchMap(clave => (clave
-        ? this.citasService.slotsDeDias(clave.split(',')).pipe(
-            startWith(null),
-            catchError(error => {
-              console.error('Error cargando la agenda de esos días', error);
-              return of<Slot[]>([]);
-            }),
-          )
-        : of<Slot[]>([]))),
+      switchMap(clave => {
+        const [barberoId, lista] = clave.split('|');
+        const dias = lista ? lista.split(',') : [];
+        if (!barberoId || dias.length === 0) return of(new Map<string, Ocupacion>());
+        return this.ocupacion.deDias(barberoId, dias).pipe(
+          startWith(null),
+          catchError(error => {
+            console.error('Error cargando la agenda de esos días', error);
+            return of(new Map<string, Ocupacion>());
+          }),
+        );
+      }),
     ),
-    { initialValue: null as Slot[] | null },
+    { initialValue: null as Map<string, Ocupacion> | null },
   );
 
   /**
-   * Las horas de ese día de la semana (los turnos de 40 min desde la apertura, o cada 20 con "ver más") y cómo
-   * están en las fechas de la serie: libre, ocupada en algunas (se apartan las demás), ocupada en todas o en el
-   * descanso del barbero.
+   * Las horas de ese día de la semana y cómo están en las fechas de la serie: libre, ocupada en algunas (se apartan
+   * las demás), ocupada en todas o en el descanso del barbero. Se ofrecen los turnos encadenados de esas fechas
+   * (desde que abre, o justo cuando termina la cita o el cierre de antes: sin tiempo muerto); con "ver más", todas
+   * las horas de 5 en 5. Como en una cita del panel, siguen después del cierre hasta que el turno termine a
+   * LIMITE_DEL_EQUIPO (10:00 p. m.): solo el equipo agenda a esas horas.
    */
   readonly horas = computed<HoraOpcion[]>(() => {
     const barbero = this.barbero();
     const dia = this.diaSemana();
-    const ocupados = this.ocupados();
-    if (!barbero?.id || dia === null || !this.desde() || ocupados === null) return [];
+    const ocupacion = this.ocupados();
+    if (!barbero?.id || dia === null || !this.desde() || ocupacion === null) return [];
     const horario = this.ajustes.horario();
     const duracion = this.duracion();
-    const paso = this.masHoras() ? BLOQUE : INTERVALO;
+    const apertura = aperturaDe(horario, dia);
+    const fechas = this.fechasSerie().filter(f => !estaCerrado(f, horario));
+
+    // El mapa del barbero en cada fecha, sin los turnos de esta misma serie (al editarla, se vuelven a apartar).
+    // Una fecha sin documento (muy adelante) se arma con las citas que ya hay.
+    const propia = this.editando()?.id;
+    const mapas = new Map(fechas.map(f => {
+      const base = ocupacion.get(f) ?? armarOcupacion(barbero.id!, f, this.citas(), []);
+      return [f, propia ? sinCitas(base, id => id.startsWith(`${propia}_`)) : base.mapa] as const;
+    }));
+
     const candidatos = new Set<number>();
-    for (let t = aperturaDe(horario, dia); t + duracion <= horario.cierre; t += paso) candidatos.add(t);
-    // La hora elegida se queda a la vista aunque no caiga en la rejilla (al editar, o tras cambiar la duración).
+    if (this.masHoras()) {
+      for (let t = apertura; t + duracion <= LIMITE_DEL_EQUIPO; t += MARCA) candidatos.add(t);
+    } else {
+      // Los turnos de la agenda vacía (desde la apertura) y los encadenados de cada fecha.
+      for (let t = apertura; t + duracion <= LIMITE_DEL_EQUIPO; t += INTERVALO) candidatos.add(t);
+      for (const mapa of mapas.values()) {
+        for (const t of turnosEncadenados({ mapa, apertura, cierre: LIMITE_DEL_EQUIPO, duracion, descanso: barbero.descanso, paso: INTERVALO })) candidatos.add(t);
+      }
+    }
+    // La hora elegida se queda a la vista aunque no caiga en la lista (al editar, o tras cambiar la duración).
     const elegida = this.minutos();
     if (elegida !== null) candidatos.add(elegida);
 
-    // Bloques del barbero por día, sin los de esta misma serie: al editarla, sus turnos se vuelven a apartar.
-    const propia = this.editando()?.id;
-    const porDia = new Map<string, Set<string>>();
-    for (const s of ocupados) {
-      if (s.barberoId !== barbero.id || (propia && s.citaId?.startsWith(`${propia}_`))) continue;
-      if (!porDia.has(s.dia)) porDia.set(s.dia, new Set());
-      porDia.get(s.dia)!.add(s.id);
-    }
-    const fechas = this.fechasSerie().filter(f => !estaCerrado(f, horario));
     const ahora = new Date();
     const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
     const descanso = barbero.descanso;
@@ -736,7 +805,7 @@ export class AdminRecurrentesComponent {
       }
       // Hoy, una hora que ya pasó no cuenta: la serie empieza en la fecha siguiente.
       const validas = fechas.filter(f => f !== this.hoy || t > minutosAhora);
-      const choques = validas.filter(f => !estaLibre(barbero.id!, f, t, duracion, porDia.get(f) ?? new Set()));
+      const choques = validas.filter(f => !estaLibreEn(mapas.get(f) ?? '', t, duracion));
       const estado: HoraOpcion['estado'] = choques.length === 0 ? 'libre' : choques.length < validas.length ? 'parcial' : 'ocupada';
       const nota = estado === 'libre' ? 'Libre' : estado === 'ocupada' ? 'Ocupada' : choques.length === 1 ? '1 fecha ocupada' : `${choques.length} ocupadas`;
       return { minutos: t, etiqueta, estado, elegible: estado !== 'ocupada' && validas.length > 0, choques, nota };
@@ -744,6 +813,12 @@ export class AdminRecurrentesComponent {
   });
 
   readonly horaElegida = computed(() => this.horas().find(h => h.minutos === this.minutos()) ?? null);
+  /**
+   * La primera hora que termina después del cierre: ahí empieza el grupo "Después del cierre" (las horas van en orden
+   * y todas duran lo mismo, así que de ahí en adelante todas terminan después).
+   */
+  readonly primeraDespuesDelCierre = computed(() => this.horas().find(h => h.minutos + this.duracion() > this.ajustes.horario().cierre)?.minutos ?? null);
+  readonly limite = formatearHora12(LIMITE_DEL_EQUIPO);
 
   /** Qué turnos se van a apartar con lo elegido, cuáles no y por qué. */
   readonly vistaPrevia = computed(() => {
@@ -765,7 +840,7 @@ export class AdminRecurrentesComponent {
     if (dia !== null && hora.minutos < aperturaDe(horario, dia)) avisos.push('Empieza antes de que abra la barbería.');
     if (hora.minutos + this.duracion() > horario.cierre) avisos.push(`Termina a las ${formatearHora12(hora.minutos + this.duracion())}, después del cierre.`);
     const lista = agendadas.slice(0, 4).map(fechaCorta).join(', ') + (agendadas.length > 4 ? ` y ${agendadas.length - 4} más, hasta el ${fechaCorta(agendadas[agendadas.length - 1])}` : '');
-    return { agendadas, omitidas, avisos, lista, hora: hora.etiqueta };
+    return { agendadas, omitidas, avisos, lista, hora: hora.etiqueta, fin: formatearHora12(hora.minutos + this.duracion()) };
   });
 
   /** Lo que falta para poder guardar ('' si está completo). */
@@ -779,6 +854,7 @@ export class AdminRecurrentesComponent {
     if (!this.horaElegida()?.elegible) return 'Esa hora ya no está libre: elige otra.';
     if (!this.nombre().trim()) return 'Escribe el nombre del cliente.';
     if (!this.celularValido()) return 'El celular debe tener 10 dígitos y empezar por 3.';
+    if (!this.correoValido()) return 'Revisa el correo del cliente.';
     return '';
   });
 
@@ -788,6 +864,11 @@ export class AdminRecurrentesComponent {
 
   whatsapp(telefono: string): string {
     return enlaceWhatsApp(telefono);
+  }
+
+  /** El precio en la lista de servicios: el del barbero que se agenda a sí mismo; para el admin, el general. */
+  precioEnLista(servicio: Servicio): number {
+    return precioCon(servicio, this.barberoFijo()?.id);
   }
 
   celular(telefono: string): string {
@@ -818,6 +899,7 @@ export class AdminRecurrentesComponent {
     this.editando.set(r);
     this.nombre.set(r.clienteNombre);
     this.telefono.set(r.clienteTelefono ? formatoCelular(r.clienteTelefono) : '');
+    this.correo.set(r.clienteCorreo ?? '');
     this.servicioId.set(r.servicioId);
     this.barberoId.set(r.barberoId);
     this.frecuencia.set(r.frecuencia);
@@ -826,7 +908,7 @@ export class AdminRecurrentesComponent {
     // El próximo turno que le toca a la serie: así no se corre la quincena ni el mes.
     const siguiente = r.desde >= this.hoy ? r.desde : fechasDeLaSerie(r.desde, r.frecuencia, this.hoy, sumarDias(this.hoy, 28))[0];
     this.desde.set(siguiente ?? proximosDias(dia, this.hoy, 1)[0]);
-    this.duracion.set(r.duracionMinutos);
+    this.duracion.set(duracionRecurrente(r.duracionMinutos));
     this.minutos.set(parsearHora(r.hora));
     this.paso.set('detalles');
     this.abierto.set(true);
@@ -848,12 +930,14 @@ export class AdminRecurrentesComponent {
   elegirContacto(contacto: Contacto) {
     this.nombre.set(contacto.nombre);
     this.telefono.set(contacto.telefono ? formatoCelular(contacto.telefono) : '');
+    this.correo.set(contacto.correo);
     this.paso.set('servicio');
   }
 
   sinCliente() {
     this.nombre.set('');
     this.telefono.set('');
+    this.correo.set('');
     this.paso.set('servicio');
   }
 
@@ -863,13 +947,14 @@ export class AdminRecurrentesComponent {
     const esNumero = /^[\d\s()+-]+$/.test(texto);
     this.nombre.set(esNumero ? '' : texto);
     this.telefono.set(esNumero ? texto : '');
+    this.correo.set('');
     this.intentoCliente.set(false);
     this.creandoCliente.set(true);
   }
 
   usarClienteNuevo() {
     this.intentoCliente.set(true);
-    if (!this.nombre().trim() || !this.celularValido()) return;
+    if (!this.nombre().trim() || !this.celularValido() || !this.correoValido()) return;
     this.creandoCliente.set(false);
     this.paso.set('servicio');
   }
@@ -877,9 +962,10 @@ export class AdminRecurrentesComponent {
   // --- II. Servicio ---
 
   elegirServicio(servicio: Servicio) {
-    if (servicio.id !== this.servicioId()) this.duracion.set(duracionDe(servicio));
+    if (servicio.id !== this.servicioId()) this.duracion.set(duracionRecurrente(duracionDe(servicio)));
     this.servicioId.set(servicio.id!);
-    if (!this.barbero()) this.barberoId.set(this.barberos()[0]?.id ?? '');
+    // Un servicio propio de un barbero va con él.
+    if (!this.barbero()) this.elegirBarbero(this.barberosDelServicio()[0]?.id ?? '');
     this.paso.set('detalles');
   }
 
@@ -898,14 +984,10 @@ export class AdminRecurrentesComponent {
   elegirDia(dia: number) {
     this.diaSemana.set(dia);
     if (!this.desde() || fechaDesdeClave(this.desde()).getDay() !== dia) this.desde.set(proximosDias(dia, this.hoy, 1)[0]);
-    // Una hora que ese día queda fuera del horario (abre más tarde) se suelta.
+    // Una hora que ese día queda fuera (abre más tarde, o pasa del tope del equipo) se suelta.
     const minutos = this.minutos();
     const horario = this.ajustes.horario();
-    if (minutos !== null && (minutos < aperturaDe(horario, dia) || minutos + this.duracion() > horario.cierre)) this.minutos.set(null);
-  }
-
-  cambiarDuracion(delta: number) {
-    this.duracion.update(d => Math.min(DURACION_MAXIMA, Math.max(DURACION_MINIMA, d + delta)));
+    if (minutos !== null && (minutos < aperturaDe(horario, dia) || minutos + this.duracion() > LIMITE_DEL_EQUIPO)) this.minutos.set(null);
   }
 
   async guardar() {
@@ -918,9 +1000,10 @@ export class AdminRecurrentesComponent {
     const datos: DatosRecurrencia = {
       clienteNombre: this.nombre().trim().replace(/\s+/g, ' ').slice(0, 120),
       clienteTelefono: this.telefono().trim() ? limpiarCelular(this.telefono()) : '',
+      clienteCorreo: this.correo().trim().toLowerCase(),
       servicioId: servicio.id!,
       serviceName: servicio.nombre.slice(0, 120),
-      precio: Number(servicio.precio) || 0,
+      precio: precioCon(servicio, barbero.id) || 0,
       duracionMinutos: this.duracion(),
       barberoId: barbero.id!,
       barberoNombre: barbero.nombre.slice(0, 80),
@@ -989,6 +1072,7 @@ export class AdminRecurrentesComponent {
     this.intentoCliente.set(false);
     this.nombre.set('');
     this.telefono.set('');
+    this.correo.set('');
     this.servicioId.set('');
     this.barberoId.set(this.barberos()[0]?.id ?? '');
     this.frecuencia.set('semanal');
@@ -1002,7 +1086,8 @@ export class AdminRecurrentesComponent {
   }
 
   private cargarUsuarios() {
-    if (this.escuchaUsuarios) return;
+    // El barbero no puede listar las cuentas (las reglas no lo dejan): sus clientes salen de sus citas y sus agendas.
+    if (this.escuchaUsuarios || this.barberoFijo()) return;
     this.escuchaUsuarios = this.usuariosService.listar().subscribe({
       next: usuarios => this.usuarios.set(usuarios),
       error: error => console.error('Error cargando los clientes registrados', error),

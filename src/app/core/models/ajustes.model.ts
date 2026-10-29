@@ -1,6 +1,6 @@
 import { CLIENTE } from '../../config/cliente';
 import { HorarioAtencion } from '../../config/cliente.model';
-import { AGENDA_CONTINUA, Agenda, BLOQUE } from '../utils/horario';
+import { AGENDA_CONTINUA, Agenda, PASO_HORARIO } from '../utils/horario';
 
 /** Botón y sección de cursos: llevan a la página externa donde el barbero vende sus cursos. */
 export interface AjustesCursos {
@@ -11,6 +11,23 @@ export interface AjustesCursos {
   textoBoton: string;
 }
 
+/**
+ * Multa a quien no llega a su turno (pedido del cliente). Se pone al marcar "No asistió" y se cobra en la siguiente
+ * visita del cliente. `automatica`: se pone sola (se puede quitar en ese momento); si no, quien marca decide cada vez.
+ */
+export interface Multa {
+  activa: boolean;
+  /** En pesos. */
+  valor: number;
+  automatica: boolean;
+}
+
+/** Tope de una multa (también en las reglas). */
+export const MULTA_MAXIMA = 1_000_000;
+
+/** Días con servicios limitados: { 'YYYY-MM-DD': [IDs de los servicios que SÍ se reservan] } (ver utils/servicios-del-dia.ts). */
+export type ServiciosPorDia = Record<string, string[]>;
+
 /** Configuración que el admin cambia desde el panel (documento `ajustes/sitio`). */
 export interface AjustesSitio {
   cursos: AjustesCursos;
@@ -18,6 +35,13 @@ export interface AjustesSitio {
   horario: Required<HorarioAtencion>;
   /** Hasta cuándo se puede reservar. Sin guardar: continua (siempre los próximos 14 días). */
   agenda: Agenda;
+  /**
+   * Días con servicios limitados (se eligen en *Citas*, tocando el día): solo esos servicios se reservan en línea ese
+   * día. Se guarda aparte del formulario de Ajustes (ver AjustesService.guardarServiciosDelDia).
+   */
+  serviciosPorDia: ServiciosPorDia;
+  /** Sin guardar: sin multa. */
+  multa: Multa;
 }
 
 export function ajustesPorDefecto(): AjustesSitio {
@@ -37,10 +61,33 @@ export function ajustesPorDefecto(): AjustesSitio {
       cierres: [...(CLIENTE.horario.cierres ?? [])],
     },
     agenda: { ...AGENDA_CONTINUA },
+    serviciosPorDia: {},
+    // Sin multa; al activarla arranca con un valor de ejemplo y puesta sola (lo que pidió el cliente).
+    multa: { activa: false, valor: 10000, automatica: true },
   };
 }
 
 const ES_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Una multa sin valor (o con uno que no se entiende) no se cobra. */
+function multaGuardada(guardada: Partial<Multa> | undefined, base: Multa): Multa {
+  if (!guardada) return base;
+  const valor = Math.round(Number(guardada?.valor));
+  const valido = Number.isFinite(valor) && valor > 0 && valor <= MULTA_MAXIMA;
+  return { activa: !!guardada?.activa && valido, valor: valido ? valor : 0, automatica: !!guardada?.automatica };
+}
+
+/** Los días con servicios limitados, sin entradas que no se entiendan (las reglas tampoco dejarían reservar con ellas). */
+export function serviciosPorDiaGuardados(guardado: unknown): ServiciosPorDia {
+  if (!guardado || typeof guardado !== 'object' || Array.isArray(guardado)) return {};
+  const limpio: ServiciosPorDia = {};
+  for (const [dia, ids] of Object.entries(guardado)) {
+    if (!ES_DIA.test(dia) || !Array.isArray(ids)) continue;
+    const validos = ids.filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (validos.length > 0) limpio[dia] = validos;
+  }
+  return limpio;
+}
 
 /**
  * Por periodos solo si quedó guardado así. Una fecha que no se entiende queda vacía, y con eso la agenda
@@ -54,7 +101,7 @@ function agendaGuardada(guardada: Partial<Agenda> | undefined): Agenda {
 
 /** Una hora que cae en la rejilla de la agenda (múltiplo de 20 min): las reglas no aceptan turnos fuera de ella. */
 function esHora(valor: unknown): valor is number {
-  return typeof valor === 'number' && Number.isInteger(valor) && valor >= 0 && valor <= 1440 && valor % BLOQUE === 0;
+  return typeof valor === 'number' && Number.isInteger(valor) && valor >= 0 && valor <= 1440 && valor % PASO_HORARIO === 0;
 }
 
 /**
@@ -80,5 +127,7 @@ export function conDefectos(guardado: Partial<AjustesSitio> | undefined): Ajuste
     cursos: { ...base.cursos, ...guardado?.cursos },
     horario: horarioGuardado(guardado?.horario, base.horario),
     agenda: agendaGuardada(guardado?.agenda),
+    serviciosPorDia: serviciosPorDiaGuardados(guardado?.serviciosPorDia),
+    multa: multaGuardada(guardado?.multa, base.multa),
   };
 }

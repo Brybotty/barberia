@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Recurrencia, bloquesAConsultar, bloquesDelTurno, citaDeLaSerie, esValida, estaLibre, fechasDeLaSerie, hora12, hoyEnColombia, idDeCita,
-  inicioDelTurno, motivoOcupado, motivoParaOmitir, sumarDias,
+  Recurrencia, citaDeLaSerie, esValida, fechasDeLaSerie, hora12, hoyEnColombia, idDeCita, inicioDelTurno, motivoOcupado, motivoParaOmitir,
+  sumarDias,
 } from './recurrencias';
 
 // El 17 de octubre de 2026 es sábado.
@@ -51,29 +51,8 @@ test('hoy y la hora del turno son los de Colombia', () => {
   assert.equal(hora12('00:20'), '12:20 AM');
 });
 
-test('el turno ocupa sus bloques de 20 min con los IDs de la agenda', () => {
-  assert.deepEqual(bloquesDelTurno('Trip', '2026-10-17', '17:20', 60), [
-    { id: 'Trip_2026-10-17_1720', hora: '17:20' },
-    { id: 'Trip_2026-10-17_1740', hora: '17:40' },
-    { id: 'Trip_2026-10-17_1800', hora: '18:00' },
-  ]);
+test('cada día de la serie tiene un ID fijo', () => {
   assert.equal(idDeCita('abc123', '2026-10-17'), 'abc123_20261017');
-});
-
-test('mira también los bloques de media hora que dejaron las citas viejas', () => {
-  const dia = '2026-10-17';
-  const ids = bloquesAConsultar('B', dia, '11:20', 40);
-  assert.ok(ids.includes('B_2026-10-17_1120') && ids.includes('B_2026-10-17_1140'));
-  assert.ok(ids.includes('B_2026-10-17_1030') && ids.includes('B_2026-10-17_1100'));
-  // Una cita vieja de 10:30 a 11:00 choca con un turno de 10:20 pero no con uno de 11:00.
-  const vieja = new Set(['B_2026-10-17_1030']);
-  assert.equal(estaLibre('B', dia, '10:20', 40, vieja), false);
-  assert.equal(estaLibre('B', dia, '11:00', 40, vieja), true);
-  // Una vieja de una hora (10:30 y 11:00) llega hasta las 11:30: choca con el de 11:20.
-  assert.equal(estaLibre('B', dia, '11:20', 40, new Set(['B_2026-10-17_1030', 'B_2026-10-17_1100'])), false);
-  assert.equal(estaLibre('B', dia, '11:40', 40, new Set(['B_2026-10-17_1030', 'B_2026-10-17_1100'])), true);
-  // Y un bloque nuevo, como siempre.
-  assert.equal(estaLibre('B', dia, '17:00', 40, new Set(['B_2026-10-17_1720'])), false);
 });
 
 test('no agenda cuando la barbería cierra, en el día libre ni en el descanso del barbero', () => {
@@ -83,6 +62,9 @@ test('no agenda cuando la barbería cierra, en el día libre ni en el descanso d
   assert.equal(motivoParaOmitir('2026-10-19', serie({ desde: '2026-10-19' }), { diasCerrados: [0] }, barbero), 'Es el día libre de Luis');
   assert.equal(motivoParaOmitir('2026-10-17', serie({ hora: '12:40' }), undefined, barbero), 'Se cruza con el descanso de Luis');
   assert.equal(motivoParaOmitir('2026-10-17', serie({ hora: '12:20' }), undefined, barbero), null);
+  // Con la duración exacta: 12:20 + 45 min llega a la 1:05, dentro del descanso; + 35 min, no.
+  assert.equal(motivoParaOmitir('2026-10-17', serie({ hora: '12:20', duracionMinutos: 45 }), undefined, barbero), 'Se cruza con el descanso de Luis');
+  assert.equal(motivoParaOmitir('2026-10-17', serie({ hora: '12:20', duracionMinutos: 35 }), undefined, barbero), null);
   assert.equal(motivoParaOmitir('2026-10-17', serie(), undefined, undefined), 'José Julián ya no está en el equipo');
   assert.equal(motivoOcupado(serie(), barbero, true), 'Luis cerró ese rato');
   assert.equal(motivoOcupado(serie(), barbero, false), 'Ya hay otra cita a esa hora');
@@ -96,16 +78,22 @@ test('la cita de cada día es como una del panel, sin cuenta ni correo, y dice d
     barberoId: 'JoseJulian', barberoNombre: 'José Julián',
     dia: '2026-10-24', hora: '17:20', horaStr: '5:20 PM', fecha: '2026-10-24T22:20:00.000Z',
     estado: 'pendiente', creadoEn: '2026-10-14T15:00:00.000Z',
-    slotIds: ['JoseJulian_2026-10-24_1720', 'JoseJulian_2026-10-24_1740', 'JoseJulian_2026-10-24_1800'],
     recurrenciaId: 'abc123', frecuencia: 'semanal',
   });
 });
 
-test('solo agenda series completas y en la rejilla de 20 minutos', () => {
+test('el turno lleva el correo del cliente (en minúsculas) para que lo vea en su cuenta', () => {
+  const cita = citaDeLaSerie(serie({ clienteCorreo: ' Juan.Camilo@Correo.com ' }), 'abc123', '2026-10-24');
+  assert.equal(cita.userEmail, 'juan.camilo@correo.com');
+  assert.equal(citaDeLaSerie(serie(), 'abc123', '2026-10-24').userEmail, '');
+});
+
+test('solo agenda series completas, a una hora de la rejilla de 5 y con una duración de 5 en 5', () => {
   assert.equal(esValida(serie()), true);
-  assert.equal(esValida(serie({ hora: '17:30' })), false);
-  assert.equal(esValida(serie({ duracionMinutos: 30 })), false);
-  assert.equal(esValida(serie({ duracionMinutos: 0 })), false);
+  for (const hora of ['17:30', '10:25', '09:05']) assert.equal(esValida(serie({ hora })), true, hora);
+  for (const hora of ['17:03', '10:31', '9:20', '24:00']) assert.equal(esValida(serie({ hora })), false, hora);
+  for (const duracion of [5, 25, 30, 45, 85, 240]) assert.equal(esValida(serie({ duracionMinutos: duracion })), true, `${duracion} min`);
+  for (const duracion of [0, -5, 7, 22.5, 245, 300]) assert.equal(esValida(serie({ duracionMinutos: duracion })), false, `${duracion} min`);
   assert.equal(esValida(serie({ desde: '2026-13-01' })), false);
   assert.equal(esValida(serie({ frecuencia: 'diaria' as never })), false);
   assert.equal(esValida(serie({ clienteNombre: '  ' })), false);

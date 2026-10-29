@@ -40,10 +40,20 @@ export const ACICALE: ConfigCliente = {
   ],
   ubicacion: {
     nombre: 'Barbería El Acicale',
-    direccion: 'Cl. 68 Nte. #4a - 52, Calima, Cali, Valle del Cauca',
+    direccion: 'Cl. 68 Nte. #4an - 52, Calima, Cali, Valle del Cauca',
     zona: 'Calima, Cali',
     mapaEmbedUrl: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3982.4360379710433!2d-76.50302802472544!3d3.485967896488413!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x8e30a912971fb479%3A0x171de41347ba5586!2sBarber%C3%ADa%20El%20Acicale!5e0!3m2!1ses-419!2sco!4v1790731941348!5m2!1ses-419!2sco',
     mapaUrl: 'https://www.google.com/maps?cid=1665738208655857030',
+    // TODO: pegar aquí el enlace de "Pedir reseñas" del Perfil de Empresa en Google (abre directo el cuadro de la reseña).
+    resenaUrl: '',
+  },
+  urlSitio: 'https://elacicale.com',
+  presentacion: {
+    titulo: 'Tu barbería en Calima, al norte de Cali',
+    parrafos: [
+      'En "El Acicale" hacemos cortes de cabello y arreglo de barba con asesoría personalizada: te ayudamos a elegir el estilo que mejor te queda. Estamos en Calima, al norte de Cali, en la Cl. 68 Nte. #4an - 52.',
+      'Reserva tu turno en línea en un minuto: eliges al barbero, el servicio, el día y la hora, sin llamar.',
+    ],
   },
   // Lunes a jueves desde las 9:20 a. m.; viernes y sábado desde las 9:00 a. m.; se cierra a las 7:40 p. m.
   // Turnos cada 40 minutos desde la apertura (ver INTERVALO en core/utils/horario.ts).

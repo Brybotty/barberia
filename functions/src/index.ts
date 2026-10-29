@@ -7,7 +7,8 @@
  * - recordarCitas (todos los días a las 6:00 p. m., hora de Colombia): recordatorio a quien tiene cita mañana
  *   y, a cada barbero con citas, su agenda del día siguiente en un solo correo.
  * - programarRecurrencia (al crear, editar, pausar o borrar una agenda recurrente): aparta sus turnos (o los quita).
- * - extenderRecurrencias (todas las noches): aparta los turnos que entran al horizonte de cada agenda recurrente.
+ * - extenderRecurrencias (todas las noches): prepara los días de agenda que les faltan a los barberos (el mapa de
+ *   `ocupacion` de cada día) y aparta los turnos que entran al horizonte de cada agenda recurrente.
  *
  * Solo se avisa de citas que aún no pasan. Si un correo falla, la cita no se afecta: queda en el log.
  * Los turnos de las agendas recurrentes no envían correos (ni al crearse ni al cambiar): el cupo de Resend es
@@ -23,7 +24,7 @@ import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebas
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import * as logger from 'firebase-functions/logger';
-import { programarSerie } from './agenda-recurrente';
+import { prepararOcupacion, programarSerie } from './agenda-recurrente';
 import { Cita, Correo, Negocio, debeAvisar, emailValido, esReemplazoDe, mananaEnColombia, necesitaRecordatorio, tipoDeCambio } from './correo';
 import {
   correoAgendaBarbero, correoBarbero, correoCanceladaBarbero, correoCanceladaCliente, correoCliente, correoRecordatorio,
@@ -59,7 +60,8 @@ export const avisarCitaNueva = onDocumentCreated({ document: 'citas/{citaId}', s
   if (!cita || !debeAvisar(cita) || cita.recurrenciaId) return;
 
   const negocio = datosDelNegocio();
-  const emailBarbero = await emailDelBarbero(cita.barberoId);
+  // Una cita que se agendó el propio barbero no le llega a él por correo (y no lleva correo del cliente): ninguno.
+  const emailBarbero = cita.origen === 'barbero' ? null : await emailDelBarbero(cita.barberoId);
 
   // El cliente reagendó: esta cita reemplaza a otra suya. Un solo aviso de "cambió de horario".
   const anterior = cita.reemplazaA
@@ -154,12 +156,21 @@ export const programarRecurrencia = onDocumentWritten({ document: 'recurrencias/
 });
 
 /**
- * Cada noche, cada agenda recurrente activa aparta el turno que acaba de entrar a su horizonte (62 días), y
- * termina las que un disparador dejó a medias. Así un cliente nunca alcanza a reservar la hora de un cliente fijo.
+ * Cada noche: primero se preparan los días que les faltan a los barberos (sin su documento de `ocupacion` no se
+ * puede reservar ese día), y luego cada agenda recurrente activa aparta el turno que acaba de entrar a su horizonte
+ * (62 días) y termina las que un disparador dejó a medias. Así un cliente nunca alcanza a reservar la hora de un
+ * cliente fijo.
  */
 export const extenderRecurrencias = onSchedule(
   { schedule: '15 0 * * *', timeZone: 'America/Bogota', timeoutSeconds: 540 },
   async () => {
+    // Si preparar los días falla, igual se extienden las agendas (cada una arma el día que le falte).
+    try {
+      const dias = await prepararOcupacion(getFirestore());
+      if (dias) logger.info('Días de agenda preparados', { dias });
+    } catch (error) {
+      logger.error('No se pudieron preparar los días de agenda', { error: String(error) });
+    }
     const activas = await getFirestore().collection('recurrencias').where('activa', '==', true).get();
     let creadas = 0;
     let fallidas = 0;

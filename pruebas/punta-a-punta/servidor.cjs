@@ -12,9 +12,9 @@ const cabeceras = {};
 for (const h of JSON.parse(fs.readFileSync(rutaFirebase, 'utf8')).hosting.headers.find(x => x.source === '**').headers) {
   let valor = h.value;
   // En http://localhost: sin "upgrade-insecure-requests" (rompería la carga) y con permiso para los emuladores.
-  if (h.key === 'Content-Security-Policy') valor = valor.replace('; upgrade-insecure-requests', '');
-  if (h.key === 'Content-Security-Policy-Report-Only') {
+  if (h.key === 'Content-Security-Policy') {
     valor = valor
+      .replace('; upgrade-insecure-requests', '')
       .replace("connect-src 'self'", "connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*")
       .replace('frame-src ', 'frame-src http://127.0.0.1:* ')
       .replace("img-src 'self'", "img-src 'self' http://127.0.0.1:*");
@@ -34,7 +34,13 @@ http.createServer((req, res) => {
   let archivo = path.join(base, url);
   // Nada fuera de la carpeta del build.
   if (archivo !== base && !archivo.startsWith(base + path.sep)) { res.writeHead(403).end(); return; }
-  if (!path.extname(url) || !fs.existsSync(archivo)) archivo = path.join(base, 'index.html');
+  // Como Hosting (trailingSlash: false): una página armada al compilar (servicios/index.html) si existe; si no, la
+  // app sin armar (index.csr.html, o index.html en un build sin prerender).
+  if (!path.extname(url) || !fs.existsSync(archivo)) {
+    const armada = path.join(base, url.replace(/\/+$/, ''), 'index.html');
+    const sinArmar = fs.existsSync(path.join(base, 'index.csr.html')) ? 'index.csr.html' : 'index.html';
+    archivo = !path.extname(url) && fs.existsSync(armada) ? armada : path.join(base, sinArmar);
+  }
   fs.readFile(archivo, (error, datos) => {
     if (error) { res.writeHead(404).end('no encontrado'); return; }
     res.writeHead(200, { ...cabeceras, 'Content-Type': TIPOS[path.extname(archivo)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });

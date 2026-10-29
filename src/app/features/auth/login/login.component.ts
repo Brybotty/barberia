@@ -8,6 +8,7 @@ import { CLIENTE } from '../../../config/cliente';
 import { Usuario } from '../../../core/models/usuario.model';
 import { MarcaComponent } from '../../../shared/components/marca/marca.component';
 import { IconoComponent } from '../../../shared/components/icono/icono.component';
+import { prepararClaveDelSms } from '../../../core/utils/recaptcha-del-sms';
 
 type Metodo = 'correo' | 'celular';
 type ModoCorreo = 'entrar' | 'crear';
@@ -15,6 +16,8 @@ type PasoCelular = 'numero' | 'codigo' | 'nombre';
 
 /** Largo mínimo de la contraseña de una cuenta nueva (Firebase por su cuenta solo exige 6). */
 const CLAVE_MINIMA = 8;
+/** Si Google no contesta, el botón no se queda en "Enviando…" para siempre. */
+const TOPE_ENVIO_MS = 30_000;
 
 @Component({
   selector: 'app-login',
@@ -31,6 +34,7 @@ export class LoginComponent implements OnDestroy {
 
   @ViewChild('recaptcha') private recaptcha?: ElementRef<HTMLElement>;
   private verificador?: RecaptchaVerifier;
+  private verificadorListo?: Promise<void>;
   private confirmacion?: ConfirmationResult;
 
   metodo: Metodo = 'correo';
@@ -136,7 +140,12 @@ export class LoginComponent implements OnDestroy {
     if (!numero) return this.mostrarError('Escribe tu celular: 10 dígitos que empiezan por 3.');
     await this.intentar(async () => {
       try {
-        this.confirmacion = await this.authService.enviarCodigo(numero, this.prepararVerificador());
+        const verificador = this.prepararVerificador();
+        this.confirmacion = await Promise.race([
+          // prepararClaveDelSms otra vez: si falló al abrir la pestaña, se reintenta (si no, ya está lista).
+          this.verificadorListo!.then(() => prepararClaveDelSms()).then(() => this.authService.enviarCodigo(numero, verificador)),
+          new Promise<never>((_, falla) => setTimeout(() => falla({ code: 'auth/timeout' }), TOPE_ENVIO_MS)),
+        ]);
       } catch (error) {
         // El reCAPTCHA no se puede reutilizar tras un error: se crea uno nuevo para el siguiente intento.
         this.reiniciarVerificador();
@@ -179,7 +188,10 @@ export class LoginComponent implements OnDestroy {
       const elemento = document.createElement('div');
       contenedor.appendChild(elemento);
       this.verificador = this.authService.crearVerificador(elemento);
-      this.verificador.render().catch(error => console.error('No se pudo preparar el reCAPTCHA:', error));
+      this.verificadorListo = this.verificador.render()
+        .then(() => undefined, error => console.error('No se pudo preparar el reCAPTCHA:', error))
+        // Después, la clave del SMS (ver recaptcha-del-sms.ts). Si bajan a la vez, a veces este no arranca.
+        .then(() => prepararClaveDelSms());
     }
     return this.verificador;
   }
@@ -203,7 +215,8 @@ export class LoginComponent implements OnDestroy {
     } catch (error: any) {
       const mensaje = mensajeDeError(error?.code);
       if (!mensaje) console.error('Error al iniciar sesión:', error);
-      this.error = mensaje || 'No se pudo completar. Inténtalo de nuevo.';
+      // Con el código a la vista, una captura de pantalla basta para saber qué respondió Firebase.
+      this.error = mensaje || `No se pudo completar. Inténtalo de nuevo.${error?.code ? ` (${error.code})` : ''}`;
     } finally {
       this.enviando = false;
     }
@@ -252,6 +265,8 @@ function mensajeDeError(codigo: string | undefined): string {
       return 'Esta cuenta está desactivada. Escríbenos para ayudarte.';
     case 'auth/network-request-failed':
       return 'Sin conexión. Revisa tu internet.';
+    case 'auth/timeout':
+      return 'Google no respondió a tiempo. Recarga la página e inténtalo de nuevo; si sigue igual, entra con Google o con tu correo.';
     default:
       return '';
   }

@@ -16,7 +16,7 @@
     "rewrites": [
       {
         "source": "**",
-        "destination": "/index.html"
+        "destination": "/index.csr.html"
       }
     ],
     "headers": [
@@ -45,11 +45,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; upgrade-insecure-requests"
-          },
-          {
-            "key": "Content-Security-Policy-Report-Only",
-            "value": "default-src 'self'; script-src 'self' https://apis.google.com https://www.google.com https://www.gstatic.com https://www.recaptcha.net https://www.instagram.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://firebasestorage.googleapis.com https://www.gstatic.com; font-src 'self'; connect-src 'self' https://*.googleapis.com https://www.google.com https://www.gstatic.com https://www.recaptcha.net; frame-src https://www.google.com https://www.recaptcha.net https://recaptcha.google.com https://elacicale.com https://www.instagram.com; manifest-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
+            "value": "default-src 'self'; script-src 'self' https://apis.google.com https://www.google.com https://www.gstatic.com https://www.recaptcha.net https://www.instagram.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://firebasestorage.googleapis.com https://www.gstatic.com; font-src 'self'; connect-src 'self' https://*.googleapis.com https://www.google.com https://www.gstatic.com https://www.recaptcha.net; frame-src https://www.google.com https://www.recaptcha.net https://recaptcha.google.com https://elacicale.com https://www.instagram.com; manifest-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; upgrade-insecure-requests"
           }
         ]
       },
@@ -63,7 +59,7 @@
         ]
       },
       {
-        "source": "/index.html",
+        "source": "**/@(index|index.csr).html",
         "headers": [
           {
             "key": "Cache-Control",
@@ -89,7 +85,8 @@
           }
         ]
       }
-    ]
+    ],
+    "trailingSlash": false
   },
   "functions": [
     {

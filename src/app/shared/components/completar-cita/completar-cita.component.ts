@@ -30,6 +30,17 @@ import { NotificationService } from '../../../core/services/notification.service
           </span>
         </label>
 
+        @if (multaPendiente() > 0) {
+          <label class="mt-5 flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-red-400/40 bg-red-500/[0.06] p-4" data-cobrar-multa>
+            <span class="min-w-0">
+              <span class="block font-bold text-white">Cobrar su multa pendiente</span>
+              <span class="block text-xs text-neutral-400">{{ multaPendiente() | currency:'COP':'symbol-narrow':'1.0-0' }} por no asistir antes. Va aparte del valor del corte.</span>
+            </span>
+            <input type="checkbox" name="cobrarMulta" [(ngModel)]="cobrarMulta" class="peer sr-only">
+            <span class="interruptor"></span>
+          </label>
+        }
+
         <div class="flex gap-3 mt-7">
           <button type="button" (click)="cerrar.emit()" class="flex-1 py-3 rounded-xl text-sm font-bold text-neutral-400 border border-white/10 hover:text-white transition-colors">Cancelar</button>
           <button type="submit" [disabled]="guardando()" class="flex-1 py-3 rounded-xl text-sm font-black bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-neutral-950 transition-colors">
@@ -45,9 +56,12 @@ export class CompletarCitaComponent implements OnInit {
   private notificaciones = inject(NotificationService);
 
   cita = input.required<Cita>();
+  /** Multa que el cliente debe de citas anteriores (ver utils/asistencia.ts): se ofrece cobrarla en esta. */
+  multaPendiente = input(0);
   cerrar = output<void>();
 
   valor: number | null = null;
+  cobrarMulta = true;
   readonly guardando = signal(false);
 
   ngOnInit() {
@@ -62,7 +76,7 @@ export class CompletarCitaComponent implements OnInit {
     }
     this.guardando.set(true);
     try {
-      await this.citas.completar(this.cita(), valor);
+      await this.citas.completar(this.cita(), valor, this.cobrarMulta ? this.multaPendiente() : 0);
       this.cerrar.emit();
     } catch (e) {
       console.error(e);

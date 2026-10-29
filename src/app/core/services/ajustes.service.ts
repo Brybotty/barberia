@@ -5,6 +5,7 @@ import { catchError, map, of, shareReplay } from 'rxjs';
 import { AjustesSitio, ajustesPorDefecto, conDefectos } from '../models/ajustes.model';
 import { conCopiaLocal, escucharDoc } from '../utils/firestore';
 import { Agenda, Horario, horarioCompleto, periodoDeAgenda } from '../utils/horario';
+import type { Multa, ServiciosPorDia } from '../models/ajustes.model';
 
 @Injectable({ providedIn: 'root' })
 export class AjustesService {
@@ -42,8 +43,18 @@ export class AjustesService {
   readonly agenda = computed<Agenda>(() => this.ajustes().agenda);
   readonly periodo = computed(() => periodoDeAgenda(this.agenda()));
 
+  /** Días en que solo se reservan en línea algunos servicios (ver utils/servicios-del-dia.ts). */
+  readonly serviciosPorDia = computed<ServiciosPorDia>(() => this.ajustes().serviciosPorDia);
+
+  /** La multa a quien no llega (inactiva si el admin no la configuró). */
+  readonly multa = computed<Multa>(() => this.ajustes().multa);
+
+  /**
+   * Lo del formulario de Ajustes (cursos, horario, agenda y multa), cada campo entero. Los días con servicios limitados
+   * no se tocan: se eligen en Citas (ServiciosDelDiaService) y el formulario pudo abrirse antes de que cambiaran.
+   */
   guardar(ajustes: AjustesSitio): Promise<void> {
-    return setDoc(this.ref, ajustes);
+    return setDoc(this.ref, ajustes, { mergeFields: ['cursos', 'horario', 'agenda', 'multa'] });
   }
 
   /** Cambia solo la agenda (abrir el siguiente periodo desde el inicio del panel), sin tocar lo demás. */

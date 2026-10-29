@@ -138,6 +138,10 @@
           <p class="text-neutral-400 mt-2">Cada servicio tiene una duración diferente.</p>
         </div>
 
+        @if (avisoServicio) {
+          <p role="status" class="mx-auto mb-8 max-w-xl rounded-2xl border border-detalle-400/30 bg-detalle-500/[0.06] px-4 py-3 text-center text-sm font-semibold text-detalle-200">{{ avisoServicio }}</p>
+        }
+
         @if (categorias.length === 0) {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             @for (i of [1, 2, 3, 4]; track i) { <div class="vidrio h-28 rounded-2xl animate-pulse"></div> }
@@ -145,12 +149,12 @@
         }
 
         <div class="space-y-10">
-          @for (categoria of categorias; track categoria.nombre) {
+          @for (categoria of categoriasVisibles; track categoria.nombre) {
             <div>
               <h3 class="rotulo mb-4">{{ categoria.nombre }}</h3>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 @for (s of categoria.servicios; track s.id) {
-                  <button (click)="seleccionarServicio(s)" [disabled]="!reservableEnLinea(s)"
+                  <button (click)="seleccionarServicio(s)" [disabled]="!habilitado(s)"
                           class="group relative text-left rounded-2xl p-5 border transition-all duration-300 flex gap-4 enabled:hover:-translate-y-0.5 disabled:opacity-60"
                           [ngClass]="servicioSeleccionado?.id === s.id ? 'bg-detalle-500/[0.07] border-detalle-400 ring-1 ring-detalle-400/40' : 'vidrio enabled:hover:border-white/25'">
                     <div class="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-colors"
@@ -170,15 +174,18 @@
                       <div class="flex items-center gap-4 mt-3">
                         <span class="text-lg font-black text-white">
                           @if (s.precioDesde) { <span class="text-xs font-bold text-neutral-500">Desde </span> }
-                          {{ s.precio | currency:'COP':'symbol-narrow':'1.0-0' }}
+                          {{ precio(s) | currency:'COP':'symbol-narrow':'1.0-0' }}
                         </span>
                         <span class="flex items-center gap-1 text-xs font-bold text-neutral-500">
                           <app-icono nombre="reloj" class="h-3.5 w-3.5" [grosor]="2" />
                           {{ s.duracionMinutos | duracion }}
                         </span>
                       </div>
-                      @if (!reservableEnLinea(s)) {
-                        <p class="mt-2 text-xs font-semibold text-detalle-300">Por su duración, este servicio se agenda directamente con la barbería.</p>
+                      @if (soloCon(s) && habilitado(s)) {
+                        <p class="mt-2 text-xs font-semibold text-detalle-300">Solo con {{ soloCon(s) }}.</p>
+                      }
+                      @if (!habilitado(s)) {
+                        <p class="mt-2 text-xs font-semibold text-detalle-300">Disponible más adelante{{ barberoSeleccionado === CUALQUIERA ? '' : ' con ' + barberoNombreSeleccionado }}.</p>
                       }
                     </div>
                   </button>
@@ -230,23 +237,31 @@
               <div class="grid grid-cols-7 gap-1">
                 @for (celda of celdas; track celda.clave) {
                   <button (click)="seleccionarDia(celda.clave)" [disabled]="!celda.reservable"
-                          [attr.aria-label]="celda.delMes ? (celda.fecha | date:'EEEE d MMMM') : null" [attr.aria-hidden]="celda.delMes ? null : true"
+                          [attr.aria-label]="celda.delMes ? (celda.fecha | date:'EEEE d MMMM') + (celda.limitado ? ', solo otros servicios' : '') : null" [attr.aria-hidden]="celda.delMes ? null : true"
                           [attr.aria-pressed]="celda.reservable ? celda.clave === diaSeleccionado : null"
-                          class="relative aspect-square rounded-xl text-sm font-bold transition-all duration-200 flex items-center justify-center"
+                          [attr.data-limitado]="celda.limitado ? '' : null"
+                          class="relative aspect-square min-h-10 rounded-xl text-sm font-bold transition-all duration-200 flex items-center justify-center"
                           [ngClass]="celda.clave === diaSeleccionado ? 'bg-acento-500 text-sobre-acento shadow-lg shadow-acento-500/25 scale-105'
+                                     : celda.limitado ? 'text-neutral-500 hover:bg-white/5'
                                      : celda.reservable ? 'text-white hover:bg-white/10'
                                      : celda.delMes ? 'text-neutral-700 cursor-not-allowed' : 'text-transparent cursor-default'">
                     {{ celda.fecha.getDate() }}
+                    @if (celda.limitado && celda.delMes) {
+                      <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full border border-detalle-400"></span>
+                    }
                     @if (celda.esHoy && celda.clave !== diaSeleccionado) {
                       <span class="absolute bottom-1.5 w-1 h-1 rounded-full bg-detalle-400"></span>
                     }
                   </button>
                 }
               </div>
-              <div class="flex items-center gap-4 mt-5 text-[11px] text-neutral-500">
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-5 text-[11px] text-neutral-500">
                 <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-white/70"></span>Disponible</span>
                 <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-neutral-700"></span>No disponible</span>
                 <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-detalle-400"></span>Hoy</span>
+                @if (hayDiasLimitados) {
+                  <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full border border-detalle-400"></span>Solo otros servicios</span>
+                }
               </div>
               @if (periodo().porPeriodo) {
                 <p class="mt-4 flex items-start gap-2 border-t border-white/5 pt-4 text-xs leading-relaxed text-detalle-200">
@@ -274,7 +289,20 @@
               </p>
             }
 
-            @if (cargandoDisponibilidad) {
+            @if (servicioFueraDelDia) {
+              <div class="flex-1 flex flex-col items-center justify-center text-center py-10" data-dia-limitado>
+                <app-icono nombre="estrella" class="mb-3 h-10 w-10 text-detalle-400/70" [grosor]="1.4" />
+                <p class="font-medium text-neutral-300">Este día solo se reserva {{ serviciosDelDiaTexto }}.</p>
+                <p class="mt-1 text-sm text-neutral-500">Elige otra fecha o cambia de servicio.</p>
+                <div class="mt-5 flex flex-wrap justify-center gap-2">
+                  @if (unicoServicioDelDia; as otro) {
+                    <button type="button" (click)="seleccionarServicio(otro)" class="boton-acento boton-chico">Cambiar a {{ otro.nombre }}</button>
+                  } @else {
+                    <button type="button" (click)="irAPaso(2)" class="boton-linea boton-chico">Elegir otro servicio</button>
+                  }
+                </div>
+              </div>
+            } @else if (cargandoDisponibilidad) {
               <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 @for (i of [1,2,3,4,5,6,7,8]; track i) {
                   <div class="h-11 rounded-xl bg-white/5 animate-pulse"></div>
@@ -283,8 +311,13 @@
             } @else if (horasDisponibles.length === 0) {
               <div class="flex-1 flex flex-col items-center justify-center text-center py-10">
                 <app-icono nombre="calendario" class="mb-3 h-10 w-10 text-neutral-700" [grosor]="1.4" />
-                <p class="text-neutral-400 font-medium">No quedan horas libres este día.</p>
-                <p class="text-neutral-600 text-sm">Prueba con otra fecha o con otro barbero.</p>
+                @if (diaSinAgenda) {
+                  <p class="text-neutral-400 font-medium">La agenda de este día aún no está lista.</p>
+                  <p class="text-neutral-600 text-sm">Prueba en unos minutos, con otra fecha, o escríbenos.</p>
+                } @else {
+                  <p class="text-neutral-400 font-medium">No quedan horas libres este día.</p>
+                  <p class="text-neutral-600 text-sm">Prueba con otra fecha o con otro barbero.</p>
+                }
               </div>
             } @else {
               <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -424,7 +457,7 @@
             </div>
             <div class="flex items-center justify-between pt-5">
               <span class="text-neutral-400 text-sm">Total {{ servicioSeleccionado?.precioDesde ? '(desde)' : '' }}</span>
-              <span class="font-display text-2xl font-black text-white">{{ servicioSeleccionado?.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+              <span class="font-display text-2xl font-black text-white">{{ precio(servicioSeleccionado) | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
             </div>
             @if (usuario) {
               <!-- En escritorio el botón va aquí; en celular, fijo abajo. -->
@@ -434,6 +467,11 @@
               </button>
             }
             <p class="text-center text-[11px] text-neutral-500 mt-3">El pago se hace en la barbería.</p>
+            @if (multa().activa) {
+              <p class="mt-2 text-center text-[11px] leading-relaxed text-neutral-500" data-aviso-multa>
+                Si no vienes ni cancelas antes, se cobra una multa de {{ multa().valor | currency:'COP':'symbol-narrow':'1.0-0' }} en tu próxima visita.
+              </p>
+            }
           </aside>
         </div>
 
@@ -449,7 +487,7 @@
           <div class="mx-auto flex max-w-5xl items-center gap-4">
             <div class="min-w-0">
               <p class="text-[11px] font-extrabold uppercase tracking-widest text-neutral-500">Total</p>
-              <p class="font-display text-lg font-black text-white">{{ servicioSeleccionado?.precio | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
+              <p class="font-display text-lg font-black text-white">{{ precio(servicioSeleccionado) | currency:'COP':'symbol-narrow':'1.0-0' }}</p>
             </div>
             <button (click)="continuar()" [disabled]="isSubmitting" class="boton-acento flex-1 !py-3.5">
               {{ isSubmitting ? 'Guardando…' : reagendando ? 'Confirmar el cambio' : 'Confirmar reserva' }}

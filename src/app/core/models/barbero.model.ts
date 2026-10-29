@@ -1,4 +1,5 @@
 import { Disponibilidad } from '../utils/horario';
+import { Servicio, esDelMenuDe } from './servicio.model';
 
 /** Lo que ve cualquiera en la página (`barberos/{id}`): nada personal. */
 export interface BarberoPublico extends Disponibilidad {
@@ -12,6 +13,19 @@ export interface BarberoPublico extends Disponibilidad {
   instagram?: string;
   /** Orden en la página (menor primero). */
   orden?: number;
+  /**
+   * Servicios (IDs) que los clientes NO pueden reservar en línea con este barbero, por ahora (p. ej. abrir primero
+   * solo los Premium). Vacío o sin el campo: se reservan todos. Lo cambia solo el admin; él agenda cualquiera.
+   */
+  serviciosCerrados?: string[];
+}
+
+/**
+ * ¿Se puede reservar en línea ese servicio con ese barbero? Debe estar en su menú (no ser el servicio propio de otro
+ * barbero) y no tenerlo cerrado por ahora.
+ */
+export function ofreceServicio(barbero: Pick<BarberoPublico, 'id' | 'serviciosCerrados'> | undefined, servicio: Pick<Servicio, 'id' | 'soloDe'> | undefined): boolean {
+  return !!barbero && !!servicio?.id && esDelMenuDe(servicio, barbero.id) && !(barbero.serviciosCerrados ?? []).includes(servicio.id);
 }
 
 /** Datos privados (`barberosPrivado/{id}`, mismo id): solo los lee el admin y el propio barbero. */

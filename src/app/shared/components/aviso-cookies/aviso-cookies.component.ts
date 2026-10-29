@@ -1,6 +1,7 @@
 import { Component, effect, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ConsentimientoService } from '../../../core/services/consentimiento.service';
+import { enNavegador } from '../../../core/utils/plataforma';
 
 /**
  * Aviso de cookies (va una sola vez, en la raíz). Sale hasta que el visitante elige, y vuelve a abrirse
@@ -11,7 +12,8 @@ import { ConsentimientoService } from '../../../core/services/consentimiento.ser
   standalone: true,
   imports: [RouterLink],
   template: `
-    @if (!consentimiento.decidido() || consentimiento.configurando()) {
+    <!-- Al compilar no se sabe si el visitante ya eligió: el aviso lo pone el navegador -->
+    @if (navegador && (!consentimiento.decidido() || consentimiento.configurando())) {
       <section class="pointer-events-none fixed inset-x-0 bottom-0 z-[80] p-3 sm:p-5 animate-in fade-in slide-in-from-bottom-6 duration-500" role="dialog" aria-labelledby="cookies-titulo" aria-describedby="cookies-texto">
         <div class="pointer-events-auto mx-auto max-w-2xl rounded-3xl border border-white/10 bg-neutral-950/95 p-5 shadow-2xl shadow-black backdrop-blur-xl sm:p-6 lg:mr-0 lg:max-w-[27rem]">
           <h2 id="cookies-titulo" class="rotulo">Cookies y contenido de terceros</h2>
@@ -70,6 +72,7 @@ import { ConsentimientoService } from '../../../core/services/consentimiento.ser
 })
 export class AvisoCookiesComponent {
   readonly consentimiento = inject(ConsentimientoService);
+  readonly navegador = enNavegador;
 
   detalle = false;
   instagram = false;

@@ -25,6 +25,9 @@ if (quitar) {
     extractLicenses: false,
     sourceMap: false,
     outputPath: 'dist/verif',
+    // Igual que producción: las páginas públicas se arman al compilar (ver src/app/app.routes.server.ts).
+    server: 'src/main.server.ts',
+    outputMode: 'static',
     fileReplacements: [{ replace: 'src/environments/environment.ts', with: 'src/environments/environment.verif.ts' }],
   };
   fs.writeFileSync(ENTORNO, [

@@ -16,26 +16,28 @@ export const routes: Routes = [
       },
       {
         path: 'servicios',
-        title: 'Servicios y precios',
-        data: { precargar: true },
+        title: 'Precios de cortes y barba en Cali',
+        data: { precargar: true, descripcion: 'Precios de los cortes de cabello y la barba en El Acicale, barbería en Calima, Cali. Elige tu servicio y reserva tu turno en línea.' },
         loadComponent: () => import('./features/servicios/servicios.component').then(m => m.ServiciosComponent)
       },
       {
         path: 'politica-de-datos',
         title: 'Política de datos y cookies',
+        data: { descripcion: 'Cómo trata El Acicale tus datos personales y qué cookies usa la página.' },
         loadComponent: () => import('./features/legal/politica-datos.component').then(m => m.PoliticaDatosComponent)
       },
       {
         // Pública: se elige barbero, servicio y hora sin sesión; solo se pide al confirmar.
         path: 'reservar',
         title: 'Reservar turno',
-        data: { precargar: true },
+        data: { precargar: true, descripcion: 'Reserva tu turno en El Acicale, barbería en Calima, Cali: elige barbero, servicio, día y hora en un minuto.' },
         loadComponent: () => import('./features/citas/reservar/reservar.component').then(m => m.ReservarComponent)
       },
       {
         // El enlace que se comparte para dejar la página como app en el celular.
         path: 'instalar',
         title: 'Instalar la app',
+        data: { descripcion: 'Deja El Acicale en la pantalla de inicio de tu celular y reserva tu turno con un toque.' },
         loadComponent: () => import('./features/instalar/instalar.component').then(m => m.InstalarComponent)
       },
       {

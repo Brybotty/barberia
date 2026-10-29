@@ -1,4 +1,5 @@
 import { Directive, ElementRef, OnDestroy, OnInit, inject, input } from '@angular/core';
+import { enNavegador } from '../../core/utils/plataforma';
 
 /**
  * Hace aparecer el elemento (fade + subida) cuando entra en pantalla.
@@ -17,7 +18,8 @@ export class RevelarDirective implements OnInit, OnDestroy {
 
   ngOnInit() {
     const el = this.elemento.nativeElement;
-    if (!('IntersectionObserver' in window)) {
+    // Al compilar (prerender) se entrega visible: así lo lee Google y lo ve quien abre antes de que cargue la app.
+    if (!enNavegador || !('IntersectionObserver' in window)) {
       el.classList.add('revelado');
       return;
     }

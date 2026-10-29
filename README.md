@@ -13,7 +13,7 @@ código sirve a varios clientes (`src/app/config/clientes/`).
 npm install
 npm start                # http://localhost:4200 (usa el Firebase real del cliente)
 npm test                 # 59 pruebas de la app (Karma)
-npm run test:reglas      # 232 pruebas de firestore.rules + 43 de storage.rules (emuladores, no toca datos reales)
+npm run test:reglas      # 241 pruebas de firestore.rules + 43 de storage.rules (emuladores, no toca datos reales)
 npm run test:funciones   # 26 pruebas de los correos y del plan de las agendas recurrentes (functions/)
 npm run test:recurrentes # 11 pruebas de las agendas recurrentes contra el emulador de Firestore
 npm run build            # build de producción en dist/barberia/browser
@@ -47,23 +47,27 @@ npm run demo     # emuladores + la página en http://localhost:4200
 3. En **Mis reservas** ve sus citas como "Agendada", puede **cambiar el horario** (servicios de hasta 1 h 20 min),
    cancelar, y **reservar de nuevo** una cita pasada con el mismo barbero y servicio.
 
-**Turnos.** La agenda ofrece un turno cada **40 minutos**, contados desde la hora en que abre cada día
-(`INTERVALO` en `src/app/core/utils/horario.ts`). El horario por defecto está en `config/clientes/*.ts`
-(`apertura`, `cierre` y, si algún día abre a otra hora, `aperturas`); el admin lo cambia en *Ajustes*. Con el de
-El Acicale (9:20 de lunes a jueves, 9:00 viernes y sábado, cierre 7:40 p. m.) los turnos son 9:20, 10:00, 10:40…
-hasta 6:40 p. m., y 9:00, 9:40, 10:20… hasta 7:00 p. m. Un servicio más largo que un turno ocupa los que necesite
-(uno de 60 minutos deja ocupados dos).
+**Turnos encadenados.** La agenda va al minuto, de 5 en 5, y los turnos se encadenan: en cada rato libre (desde que
+abre, o desde que termina la cita, el cierre o el descanso de antes) va un turno cada **40 minutos** (`INTERVALO` en
+`src/app/core/utils/horario.ts`) mientras el servicio quepa entero. Con el día vacío son los de siempre: con el horario
+de El Acicale (9:20 de lunes a jueves, 9:00 viernes y sábado, cierre 7:40 p. m.), 9:20, 10:00, 10:40… hasta 6:40 p. m.,
+y 9:00, 9:40, 10:20… hasta 7:00 p. m. Pero el turno siguiente entra justo cuando termina el anterior, sin tiempo
+muerto: tras un Barba2 de 10:00 a 11:00 se ofrece las 11:00 (no las 11:20), y tras un cliente fijo de 10:00 a 10:30,
+las 10:30. El horario por defecto está en `config/clientes/*.ts` (`apertura`, `cierre` y, si algún día abre a otra
+hora, `aperturas`); el admin lo cambia en *Ajustes*.
 
 Límites que hacen cumplir las reglas de Firestore (no solo la página):
 
-- **Sin doble reserva:** cada bloque de 20 minutos ocupado es un documento de `slots` con ID fijo; no se puede
-  escribir sobre uno que existe. Las citas empiezan en punto, y 20 o y 40, y se comprueban **todos** los bloques
-  del servicio. Los bloques son de 20 minutos (y no de 40, como los turnos) porque no todos los días abren a la
-  misma hora: así, dos citas que se cruzan comparten siempre algún bloque, y las reglas no necesitan saber el horario.
+- **Sin doble reserva:** cada barbero tiene un documento por día en `ocupacion`, con un mapa de 288 marcas (una por
+  cada 5 minutos). Cada reserva aparta su rato en ese mapa en la misma escritura que crea la cita, y las reglas
+  comprueban de un golpe que estuviera libre (sin importar cuánto dure). Las citas empiezan en cualquier múltiplo de 5
+  minutos; las reglas no necesitan saber el horario.
 - **Cupo:** 2 reservas activas por cliente y día (las reglas aceptan una tercera, que usa el cambio de horario).
-- **Agenda:** solo los días que la barbería tiene abiertos (ver *Agenda de reservas*, abajo). Reservas en línea de
-  hasta 2 h 20 min (7 bloques); las más largas las registra el admin desde *Citas*.
-- **Barbero:** no se puede reservar en su día libre, en su descanso ni en las horas que cerró.
+- **Agenda:** solo los días que la barbería tiene abiertos (ver *Agenda de reservas*, abajo), y que ya tengan su
+  documento de `ocupacion` (los prepara el panel del admin al abrirse y la Cloud Function cada noche, 62 días adelante).
+  Cualquier servicio se reserva y se cambia de horario en línea, dure lo que dure.
+- **Barbero:** no se puede reservar en su día libre, en su descanso, en las horas que cerró ni un servicio que el
+  admin no tenga habilitado con él.
 
 ### Agenda de reservas
 
@@ -109,6 +113,26 @@ detecta el celular y muestra lo que corresponde (`InstalacionService` y `feature
   pide abrir el enlace en Safari o Chrome.
 - Con la app ya instalada, el enlace "Instalar la app" desaparece del menú y del pie.
 
+### Google (SEO)
+
+- **Páginas armadas al compilar (prerender):** el inicio, servicios, la política y `/instalar` se publican ya escritas
+  (`dist/barberia/browser/servicios/index.html`, ver `src/app/app.routes.server.ts`): Google y las redes leen el
+  contenido sin ejecutar JavaScript, y en el celular se ven antes de que cargue la app, que luego las **retoma sin
+  volver a pintarlas** (hidratación). Lo que viene de Firestore (servicios, equipo) no va en ese HTML: lo carga el
+  navegador. Las demás rutas abren desde `index.csr.html` (la reescritura de `firebase.json`). Solo el build de
+  producción prerenderiza; `npm start` sigue igual.
+- **Al compilar no hay navegador:** lo que use `window`, `localStorage`, la hora del visitante o Firebase se protege
+  con `enNavegador` (`core/utils/plataforma.ts`). Al agregar algo así a una página pública, protégelo igual o el
+  build falla.
+- **Por página:** título, descripción (`data.descripcion` en las rutas) y dirección canónica (`TituloStrategy`, con
+  `urlSitio` de la config). El inicio dice "Barbería en Calima, Cali" en su titular y trae un texto propio
+  (`presentacion` en la config).
+- **Ficha del negocio** (JSON-LD en `src/index.html`): dirección, coordenadas, horario, teléfono, reservas y servicios
+  con precio. **El horario y los precios están escritos a mano:** si cambian en el panel, actualízalos ahí.
+- **Reseñas:** "Pedir reseña" por WhatsApp en los cortes ya hechos (panel del barbero y del admin) y "Califícanos en
+  Google" en *Mis reservas*. Usan `ubicacion.resenaUrl` (el enlace de "Pedir reseñas" del Perfil de Empresa) o, sin
+  él, la ficha en Maps.
+
 ### Qué hace que cargue rápido
 
 - **Arranque:** mientras baja la aplicación se ve la marca (`.arranque` en `src/index.html`), no una pantalla negra.
@@ -152,6 +176,9 @@ admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
 - **Agenda:** turnos de hoy ("Hecho", que pide el valor cobrado, y "No asistió") y próximas citas; los de clientes
   fijos llevan la marca **Recurrente**. Cada cita trae **"Recordarle por WhatsApp"**: abre el chat del cliente con el
   mensaje ya escrito (no gasta correos ni dinero).
+- **Nueva cita:** el barbero se agenda citas a sí mismo (las que le piden por WhatsApp o en el local), también
+  **después del cierre, hasta que la cita termine a las 10:00 p. m.** Solo en los días y horas que trabaja, con sus
+  servicios y sin correos (ni al cliente ni a él). Quedan marcadas `origen: 'barbero'`.
 - **Mi disponibilidad:** días libres de cada semana, descanso fijo de cada día (almuerzo) y cierre de un día o de
   unas horas (permiso, vacaciones). La reserva deja de ofrecer esos ratos al instante. Las citas ya agendadas no se
   tocan.
@@ -161,12 +188,19 @@ admin a `/admin`, el barbero a `/barbero` y el cliente a reservar.
 
 - **Inicio:** citas e ingresos de hoy, cortes e inasistencias de la semana y lo que sigue hoy. Con la agenda por
   periodos, hasta cuándo está abierta y el botón para abrir 15 días más.
-- **Citas:** calendario y lista; editar, mover, completar o eliminar.
+- **Citas:** calendario y lista; editar, mover, completar o eliminar. **Nueva cita** (formulario compartido con el
+  barbero, `shared/components/nueva-cita`): cualquier barbero y servicio, y además de las horas del horario, las de
+  **después del cierre hasta que la cita termine a las 10:00 p. m.** (`LIMITE_DEL_EQUIPO` en `core/utils/horario.ts`;
+  la reserva en línea no las ofrece). "Editar o mover" llega hasta la misma hora.
 - **Agendas recurrentes:** clientes fijos que vienen cada semana, cada 2 semanas o cada 4 semanas ("mensual"), el
   mismo día y a la misma hora (ver abajo).
 - **Cortes y ganancias:** lo de todo el equipo, cuánto le corresponde a cada barbero y cuánto queda para la barbería,
   y aparte lo de los clientes fijos (turnos hechos, lo generado y cuántas veces no vinieron).
-- **Servicios y precios:** el menú. El precio y la duración de aquí son los que valen al reservar.
+- **Servicios y precios:** el menú. El precio y la duración de aquí son los que valen al reservar. Arriba, **qué se puede
+  reservar con cada barbero**: un interruptor por servicio para habilitar, por ejemplo, solo los Premium y luego los
+  demás. Lo que no esté habilitado se ve en la reserva como "Disponible más adelante" (con "Cualquier barbero" se
+  asigna uno que lo ofrezca); el *Inicio* lo recuerda mientras haya servicios sin habilitar, y desde *Citas* el admin
+  agenda cualquiera.
 - **Equipo:** nombre, rol, **foto (se sube a Storage desde el panel)**, Instagram, orden, correo y comisión de cada
   barbero, y su disponibilidad. **La página de inicio y la reserva muestran lo que haya aquí** (una sola fuente).
 - **Usuarios y roles**, y **Ajustes:** agenda de reservas (por periodos o siempre abierta), horario de atención
@@ -180,12 +214,18 @@ En *Admin → Agendas recurrentes*, el botón flotante del calendario (en celula
    agendas; o **Crear cliente** (nombre y celular), o **Continuar sin agregar cliente** (el nombre se escribe al final).
 2. **Servicio.**
 3. **Agenda:** barbero, tipo de recurrencia (semanal, quincenal = cada 2 semanas, mensual = cada 4 semanas), día,
-   fecha del primer turno, **duración** (de 20 en 20 min; puede ser distinta de la del catálogo) y **hora**. Cada hora
-   dice si está libre, ocupada en algunas fechas (esas no se apartan) u ocupada en todas, o si cae en el descanso del
-   barbero. Un resumen dice qué turnos se apartan y cuáles no, y por qué.
+   fecha del primer turno, **duración** (de 5 en 5 min, hasta 4 h; puede ser distinta de la del catálogo) y **hora**
+   (los turnos encadenados de esas fechas, o cualquiera de 5 en 5 con "Ver más horas"; también **después del cierre,
+   hasta que el turno termine a las 10:00 p. m.**, en un grupo aparte, para el admin y el barbero; las reglas le ponen
+   ese tope a las del barbero). Cada hora dice si está libre,
+   ocupada en algunas fechas (esas no se apartan) u ocupada en todas, o si cae en el descanso del barbero. Un resumen
+   dice qué turnos se apartan y cuáles no, y por qué.
+
+El admin crea las de todos los barberos. Cada barbero crea las suyas en su panel (*Agendas recurrentes*), con la misma
+ventana, pero solo consigo mismo: las reglas no le dejan crear ni tocar las de otro.
 
 Un mismo cliente puede tener varias agendas. Al guardar, la Cloud Function **`programarRecurrencia`** aparta los
-turnos de verdad (una cita sin cuenta y sus bloques en `slots`, como una reserva) hasta **62 días** adelante, que es lo
+turnos de verdad (una cita sin cuenta y su rato en `ocupacion`, como una reserva) hasta **62 días** adelante, que es lo
 más lejos que puede reservar un cliente; **`extenderRecurrencias`** suma cada noche el turno que entra a ese
 horizonte. Así ningún cliente alcanza a reservar la hora de un cliente fijo, aunque nadie abra el panel.
 
@@ -235,18 +275,23 @@ valor). En los emuladores los correos no salen: se muestran en el log.
 
 - `usuarios/{uid}`: perfil, rol y teléfono.
 - `servicios/{id}`: catálogo público.
-- `barberos/{id}`: perfil **público** (nombre, rol, foto, Instagram, orden, `diasLibres` y `descanso`). El barbero
-  solo puede cambiar su propia disponibilidad; lo demás, el admin.
+- `barberos/{id}`: perfil **público** (nombre, rol, foto, Instagram, orden, `diasLibres`, `descanso` y
+  `serviciosCerrados`, los servicios que por ahora no se reservan en línea con él). El barbero solo puede cambiar su
+  propia disponibilidad; lo demás, el admin.
 - `barberosPrivado/{id}` (mismo id): `emailAsociado` y `comision`. Solo el admin, y cada barbero el suyo.
 - `citas/{id}`: reservas con datos del cliente. Solo las leen su dueño y el staff. Llevan `cupoId` y, si vienen de
   un cambio de horario, `reemplazaA` (la anterior queda cancelada con `reemplazadaPor`). Los turnos de una agenda
   recurrente tienen ID `{recurrenciaId}_{AAAAMMDD}`, `userId` vacío, `recurrenciaId` y `frecuencia`.
-- `recurrencias/{id}`: agendas recurrentes (solo el admin): cliente, servicio, duración, barbero, `frecuencia`
+- `recurrencias/{id}`: agendas recurrentes (el admin las de todos; cada barbero, las suyas): cliente, servicio, duración, barbero, `frecuencia`
   (`semanal` | `quincenal` | `mensual`), `hora`, `desde` (primer día; el día de la semana sale de ahí), `activa` y
   `actualizadoEn`. La función anota `generadaHasta`, `procesadaEn` (la versión que ya agendó) y `omitidas` (días por
   venir que no pudo apartar, con el motivo); desde el navegador esos tres campos no se escriben.
-- `slots/{barberoId}_{YYYY-MM-DD}_{HHmm}`: un documento por cada bloque de 20 minutos ocupado, sin datos personales y de
-  lectura pública. De una cita (`citaId`) o un cierre del barbero (`bloqueo: true`, `motivo`).
+- `ocupacion/{barberoId}_{YYYY-MM-DD}`: la agenda de un barbero ese día, sin datos personales y de lectura pública.
+  `mapa`: 288 caracteres, uno por cada 5 minutos ('0' libre, 'c' una cita y la letra del motivo de un cierre: D
+  Descanso, A Almuerzo, P Permiso, V Vacaciones, O Otro, X sin motivo); `citas`: el tramo de cada cita activa
+  (`{citaId: [primeraMarca, marcas]}`); `op`: qué cambió en la última escritura (lo que revisan las reglas).
+- `slots/…`: la agenda de antes (bloques de 20 min). Ya nadie la escribe; se lee una vez para armar los días que
+  faltan (los cierres que había) y el admin puede borrarla.
 - `cupos/{uid}_{YYYY-MM-DD}_{1..3}`: una reserva activa del cliente ese día.
 - `ajustes/sitio`: cursos, horario de atención (`{ apertura, cierre, aperturas, diasCerrados, cierres }`, en minutos
   desde medianoche y siempre múltiplos de 20; `aperturas` trae los días que abren a otra hora) y `agenda`
@@ -263,27 +308,32 @@ debe fallar).
 
 - **Roles y datos personales:** nadie se da un rol ni pone el correo de otro; cada cliente ve solo sus citas y su
   perfil; el correo y la comisión de los barberos no son públicos.
-- **Reservas:** precio, nombre y duración salen del catálogo; bloques completos y con su ID exacto; cupo por día;
+- **Reservas:** precio, nombre y duración salen del catálogo; el rato exacto apartado en la agenda, que estaba libre; cupo por día;
   ventana de fechas; textos con límite; la confirmación solo va al correo de quien reserva.
-- **Barberos:** solo gestionan sus citas y su agenda. **Catálogo, equipo y ajustes:** solo el admin. Cualquier otra
-  colección está cerrada.
-- **Límites de las reglas:** una escritura puede leer 10 documentos y evaluar 1.000 expresiones. La regla de crear
-  cita está medida con 7 bloques y deja margen; si le agregas comprobaciones, las pruebas avisan.
-- **Agenda:** que el día esté dentro de la agenda abierta se comprueba al crear el **cupo** (la cita ya gasta sus 10
-  lecturas, y sin cupo de ese día no hay cita). La cita solo pone el tope duro: ni en el pasado ni a más de 60 días.
+- **Barberos:** solo gestionan sus citas y su agenda. Pueden agendarse citas a sí mismos (`citaDelBarbero`: su
+  perfil, servicio del catálogo, día y hora en que trabajan, sin cuenta ni correo y terminando a más tardar a las
+  10:00 p. m.). **Catálogo, equipo y ajustes:** solo el admin. Cualquier otra colección está cerrada.
+- **Límites de las reglas:** una escritura puede leer 10 documentos y evaluar 1.000 expresiones. Con el mapa de cada
+  día, una reserva lee unos 5 documentos sin importar cuánto dure; si le agregas comprobaciones, las pruebas avisan.
+- **Agenda:** que el día esté dentro de la agenda abierta se comprueba al crear el **cupo** (sin cupo de ese día no
+  hay cita). La cita solo pone el tope duro: ni en el pasado ni a más de 60 días.
 - **Sin terceros innecesarios:** las fuentes, los íconos, los avatares y el sonido de aviso van dentro de la página.
 - **Encabezados (`firebase.json`):** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS y
-  una política de contenido básica. Además hay una política **estricta en modo "solo reportar"**
-  (`Content-Security-Policy-Report-Only`): no bloquea nada, pero el navegador avisa en la consola si algo queda
-  fuera. Cuando lleve un tiempo sin avisos en producción (incluido el ingreso con Google y con celular), se puede
-  pasar a `Content-Security-Policy`. Si cambia el dominio, cámbialo ahí (en `frame-src`, por la ventana de Google).
+  una política de contenido **estricta y obligatoria** (`Content-Security-Policy`): el navegador bloquea todo lo que
+  venga de un origen que no esté en la lista. Estuvo en modo "solo reportar" hasta el 2026-10-15, sin avisos en
+  producción (inicio, mapa, Instagram, reCAPTCHA, ingreso con Google y con celular). Si agregas un servicio de fuera
+  (otro video, otra fuente, otro mapa), agrégalo ahí o no cargará. Si cambia el dominio, cámbialo en `frame-src`
+  (por la ventana de Google).
 
 ### Protecciones configuradas en Firebase (no están en el código)
 
 - **App Check** (reCAPTCHA Enterprise): Firestore solo atiende a la página de verdad. Clave en `appCheckSiteKey`.
 - **Llave de API** restringida a `elacicale.com`, `www.elacicale.com`, `barbercali-db2.web.app`,
   `barbercali-db2.firebaseapp.com` y `localhost`.
-- **reCAPTCHA Enterprise para el SMS** y SMS permitidos solo a Colombia.
+- **reCAPTCHA Enterprise para el SMS** (en ENFORCE desde el 2026-10-15) y SMS permitidos solo a Colombia. Con App
+  Check en la misma página, Firebase no carga la clave del SMS y el envío se quedaba en "Enviando…": lo arregla
+  `core/utils/recaptcha-del-sms.ts` (carga reCAPTCHA con esa clave antes de enviar). No lo quites al actualizar
+  Firebase sin probar el login por celular en el dominio real.
 - **Secretos** (llave de Resend): en Secret Manager, nunca en el código.
 
 Con `npm start` la página usa un token de depuración de App Check: la primera vez, copia de la consola del navegador

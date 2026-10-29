@@ -3,9 +3,10 @@ import { conDefectos } from '../models/ajustes.model';
 import { etiquetaEstado } from '../models/cita.model';
 import { esCelularValido, formatoCelular, limpiarCelular } from './colombia';
 import {
-  AGENDA_CONTINUA, Agenda, Horario, bloquesDe, claveDia, diaLargo, diasEntre, diasReservables, estaCerrado, estadoDelNegocio, extenderAgenda,
-  horariosDisponibles, opcionesDeHora, parsearHora, periodoDeAgenda, rangosDe, sumarDias, trabaja,
+  AGENDA_CONTINUA, Agenda, Horario, claveDia, diaLargo, diasEntre, diasReservables, estaCerrado, estadoDelNegocio, extenderAgenda,
+  opcionesDeHora, parsearHora, periodoDeAgenda, sumarDias, trabaja,
 } from './horario';
+import { horariosDisponibles, mapaVacio, ocupar, tramo } from './ocupacion';
 
 // Lunes a sábado de 10:00 a. m. a 8:00 p. m.; domingo cerrado; el 14 de octubre de 2026 (miércoles) cerrado por festivo.
 const horario: Horario = { apertura: 600, cierre: 1200, intervalo: 40, diasCerrados: [0], cierres: ['2026-10-14'], diasReservables: 14 };
@@ -27,7 +28,7 @@ describe('agenda: horario de la barbería', () => {
   });
 
   it('no ofrece horas en una fecha cerrada', () => {
-    const horas = horariosDisponibles({ dia: '2026-10-14', duracion: 60, barberos: ['b1'], ocupados: new Set(), ahora: new Date(2026, 9, 12, 9), horario });
+    const horas = horariosDisponibles({ dia: '2026-10-14', duracion: 60, barberos: ['b1'], mapas: { b1: mapaVacio() }, ahora: new Date(2026, 9, 12, 9), horario });
     expect(horas).toEqual([]);
   });
 
@@ -52,8 +53,10 @@ describe('agenda: horario de la barbería', () => {
     expect(estadoDelNegocio(enColombia('2026-10-17T21:00:00'), porDia).texto).toBe('Cerrado · abre el lunes a las 9:20 AM'); // sábado en la noche
   });
 
-  it('las horas de los selectores van cada 20 minutos, y las de fin incluyen la del cierre', () => {
+  it('las horas de los selectores van cada 20 minutos (o de 5 en 5), y las de fin incluyen la del cierre', () => {
     expect(opcionesDeHora(horario).slice(0, 3).map(o => o.minutos)).toEqual([600, 620, 640]);
+    expect(opcionesDeHora(horario, false, 5).slice(0, 3).map(o => o.minutos)).toEqual([600, 605, 610]);
+    expect(opcionesDeHora(horario, true, 5).at(-1)?.minutos).toBe(1200);
     expect(opcionesDeHora(horario).at(-1)?.minutos).toBe(1180);
     expect(opcionesDeHora(horario, true).at(-1)?.minutos).toBe(1200);
     // Empiezan en la apertura más temprana de la semana.
@@ -78,45 +81,34 @@ describe('agenda: disponibilidad de cada barbero', () => {
     expect(trabaja(almuerzo, lunes, 840, 60)).toBe(true); // empieza justo a las 2:00
   });
 
-  it('con "cualquier barbero" ofrece la hora si al menos uno la tiene libre', () => {
+  it('con "cualquier barbero" ofrece la hora a quienes la tienen como turno', () => {
+    // b1 almuerza de 1:00 a 2:00; b2 tiene una cita de 1:00 a 1:20.
     const horas = horariosDisponibles({
-      dia: lunes, duracion: 60, barberos: ['b1', 'b2'], ocupados: new Set(['b2_2026-10-12_1300']),
+      dia: lunes, duracion: 60, barberos: ['b1', 'b2'], mapas: { b1: mapaVacio(), b2: ocupar(mapaVacio(), ...tramo(780, 20)) },
       disponibilidad: { b1: { descanso: { desde: 780, hasta: 840 } }, b2: { diasLibres: [] } },
       ahora: new Date(2026, 9, 11, 9), horario,
     });
     const a = (minutos: number) => horas.find(h => h.minutos === minutos)?.barberosLibres;
     expect(a(600)).toEqual(['b1', 'b2']);
-    expect(a(720)).toEqual(['b1', 'b2']); // 12:00 a 1:00: b1 termina justo antes de almorzar
+    expect(a(720)).toEqual(['b1', 'b2']); // 12:00 a 1:00: los dos terminan justo antes de la 1:00
     expect(a(760)).toBeUndefined(); // 12:40 a 1:40: b1 entra a almorzar y b2 tiene la 1:00 ocupada
-    expect(a(800)).toEqual(['b2']); // 1:20 a 2:20: b1 sigue almorzando
-    expect(a(780)).toBeUndefined(); // la 1:00 no es un turno: van cada 40 minutos desde las 10:00
+    expect(a(800)).toEqual(['b2']); // 1:20, justo cuando termina la cita de b2; b1 sigue almorzando
+    expect(a(840)).toEqual(['b1', 'b2']); // 2:00: b1 vuelve de almorzar y b2 sigue su cadena (1:20, 2:00...)
+    expect(a(780)).toBeUndefined();
   });
 
   it('si todos tienen el día libre no queda ninguna hora', () => {
     const horas = horariosDisponibles({
-      dia: lunes, duracion: 30, barberos: ['b1'], ocupados: new Set(), disponibilidad: { b1: { diasLibres: [1] } }, ahora: new Date(2026, 9, 11, 9), horario,
+      dia: lunes, duracion: 30, barberos: ['b1'], mapas: { b1: mapaVacio() }, disponibilidad: { b1: { diasLibres: [1] } }, ahora: new Date(2026, 9, 11, 9), horario,
     });
     expect(horas).toEqual([]);
   });
 });
 
 describe('agenda: utilidades', () => {
-  it('junta bloques seguidos en rangos', () => {
-    expect(rangosDe([640, 600, 620, 780])).toEqual([{ desde: 600, hasta: 660 }, { desde: 780, hasta: 800 }]);
-    expect(rangosDe([])).toEqual([]);
-  });
-
   it('lee la hora de los bloques guardados sin dos puntos', () => {
     expect(parsearHora('1030')).toBe(630);
     expect(parsearHora('10:30')).toBe(630);
-  });
-
-  it('cuenta los bloques de 20 minutos de un servicio', () => {
-    expect(bloquesDe(20)).toBe(1);
-    expect(bloquesDe(40)).toBe(2);
-    expect(bloquesDe(60)).toBe(3);
-    expect(bloquesDe(90)).toBe(5);
-    expect(bloquesDe(140)).toBe(7);
   });
 
   it('al cliente nunca le dice "pendiente": la reserva queda en firme', () => {

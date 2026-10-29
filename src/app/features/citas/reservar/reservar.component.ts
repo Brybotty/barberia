@@ -6,8 +6,8 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReplaySubject, of, switchMap } from 'rxjs';
 import { BARBERO_CUALQUIERA, Cita, RESERVAS_POR_DIA, esActiva } from '../../../core/models/cita.model';
-import { BarberoPublico, iniciales } from '../../../core/models/barbero.model';
-import { Servicio, iconoDe } from '../../../core/models/servicio.model';
+import { BarberoPublico, iniciales, ofreceServicio } from '../../../core/models/barbero.model';
+import { Servicio, esDelMenuDe, iconoDe, precioCon } from '../../../core/models/servicio.model';
 import { AjustesService } from '../../../core/services/ajustes.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { BarberosService } from '../../../core/services/barberos.service';
@@ -20,10 +20,10 @@ import { IconoComponent } from '../../../shared/components/icono/icono.component
 import { RedSocialComponent } from '../../../shared/components/red-social/red-social.component';
 import { DuracionPipe } from '../../../shared/pipes/duracion.pipe';
 import { esCelularValido, limpiarCelular } from '../../../core/utils/colombia';
-import {
-  HorarioDisponible, MAX_BLOQUES_EN_LINEA, bloquesDe, claveDia, diasReservables, duracionDe, fechaDesdeClave, horariosDisponibles,
-  inicioDeCita, minutosAHora24,
-} from '../../../core/utils/horario';
+import { claveDia, diaDeCita, diasReservables, duracionDe, fechaDesdeClave, inicioDeCita, minutosAHora24 } from '../../../core/utils/horario';
+import { HorarioDisponible, Ocupacion, cargaDe, horariosDisponibles, sinCitas } from '../../../core/utils/ocupacion';
+import { OcupacionService } from '../../../core/services/ocupacion.service';
+import { nombresDeServicios, servicioPermitidoEl, serviciosDelDia } from '../../../core/utils/servicios-del-dia';
 
 type Paso = 1 | 2 | 3 | 4;
 
@@ -32,6 +32,8 @@ interface CeldaCalendario {
   clave: string;
   delMes: boolean;
   reservable: boolean;
+  /** Se puede reservar ese día, pero no el servicio elegido: el admin dejó el día para otros servicios. */
+  limitado: boolean;
   esHoy: boolean;
 }
 
@@ -59,6 +61,7 @@ export class ReservarComponent implements OnInit, DoCheck {
   private route = inject(ActivatedRoute);
   private authService = inject(AuthService);
   private citasService = inject(CitasService);
+  private ocupacionService = inject(OcupacionService);
   private barberosService = inject(BarberosService);
   private serviciosService = inject(ServiciosService);
   private notificaciones = inject(NotificationService);
@@ -66,6 +69,8 @@ export class ReservarComponent implements OnInit, DoCheck {
   private marco = inject(MarcoService);
   private destroyRef = inject(DestroyRef);
 
+  /** Si el admin activó la multa por no asistir, se le dice al cliente antes de confirmar. */
+  readonly multa = this.ajustes.multa;
   /** Con la agenda por periodos: hasta cuándo se puede reservar (se le cuenta al cliente bajo el calendario). */
   readonly periodo = this.ajustes.periodo;
   /** No queda ningún día en el que se pueda reservar: el periodo terminó y aún no abren el siguiente. */
@@ -91,6 +96,8 @@ export class ReservarComponent implements OnInit, DoCheck {
   barberoElegido = false;
   barberoSeleccionado: string = BARBERO_CUALQUIERA;
   servicioSeleccionado: Servicio | null = null;
+  /** El servicio que venía elegido no se está reservando con ese barbero (el admin lo cerró por ahora). */
+  avisoServicio = '';
   horaSeleccionada: HorarioDisponible | null = null;
   horasDisponibles: HorarioDisponible[] = [];
 
@@ -98,7 +105,8 @@ export class ReservarComponent implements OnInit, DoCheck {
   private servicios: Servicio[] = [];
   categorias: { nombre: string; servicios: Servicio[] }[] = [];
   cargandoDisponibilidad = false;
-  private ocupados = new Set<string>();
+  /** La agenda de cada barbero el día elegido (por id), al minuto. */
+  private ocupacion = new Map<string, Ocupacion>();
   // Con memoria: el calendario se arma antes de que exista quien escucha el día elegido.
   private cambioDeDia$ = new ReplaySubject<string>(1);
 
@@ -142,6 +150,14 @@ export class ReservarComponent implements OnInit, DoCheck {
       this.ajustes.agenda();
       untracked(() => this.prepararCalendario());
     });
+    // Lo mismo si deja un día solo para algunos servicios (o lo vuelve a abrir).
+    effect(() => {
+      this.ajustes.serviciosPorDia();
+      untracked(() => {
+        this.construirCeldas();
+        this.generarHoras();
+      });
+    });
     this.destroyRef.onDestroy(() => this.marco.barraPropia.set(false));
   }
 
@@ -181,6 +197,7 @@ export class ReservarComponent implements OnInit, DoCheck {
       next: staff => {
         this.staff = staff;
         this.restaurar();
+        this.revisarServicio();
         this.construirCeldas();
         this.generarHoras();
       },
@@ -195,13 +212,13 @@ export class ReservarComponent implements OnInit, DoCheck {
       error: error => console.error('Error cargando servicios', error),
     });
 
-    // Bloques ocupados del día elegido, en tiempo real.
+    // La agenda del día elegido, en tiempo real.
     this.cambioDeDia$.pipe(
-      switchMap(dia => this.citasService.slotsOcupados(dia)),
+      switchMap(dia => this.ocupacionService.delDia(dia)),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
-      next: ocupados => {
-        this.ocupados = ocupados;
+      next: ocupacion => {
+        this.ocupacion = ocupacion;
         this.cargandoDisponibilidad = false;
         this.generarHoras();
       },
@@ -293,8 +310,9 @@ export class ReservarComponent implements OnInit, DoCheck {
     }
     if (p.servicioId) {
       const servicio = this.servicios.find(s => s.id === p.servicioId);
-      if (servicio && this.reservableEnLinea(servicio)) this.servicioSeleccionado = servicio;
+      if (servicio) this.servicioSeleccionado = servicio;
     }
+    if (this.barberoElegido) this.revisarServicio();
     this.construirCeldas();
     if (!this.barberoElegido) return;
     if (!this.servicioSeleccionado) {
@@ -363,6 +381,8 @@ export class ReservarComponent implements OnInit, DoCheck {
     this.barberoSeleccionado = id;
     this.barberoElegido = true;
     this.horaSeleccionada = null;
+    this.avisoServicio = '';
+    this.revisarServicio();
     this.construirCeldas();
     this.generarHoras();
     // Si el servicio ya venía elegido desde el catálogo, se salta directo al horario.
@@ -383,20 +403,80 @@ export class ReservarComponent implements OnInit, DoCheck {
     // Usa la versión actual del servicio que venía del catálogo (precio o duración pudieron cambiar).
     if (this.servicioSeleccionado?.id) {
       this.servicioSeleccionado = servicios.find(s => s.id === this.servicioSeleccionado!.id) ?? this.servicioSeleccionado;
-      if (!this.reservableEnLinea(this.servicioSeleccionado)) this.servicioSeleccionado = null;
     }
   }
 
-  /** Los servicios muy largos no se reservan en línea (las reglas comprueban hasta 7 bloques): se agendan con la barbería. */
-  reservableEnLinea(servicio: Servicio): boolean {
-    return bloquesDe(duracionDe(servicio)) <= MAX_BLOQUES_EN_LINEA;
+  /**
+   * Los servicios del menú del barbero elegido: los de todos y los suyos propios (los propios de otro barbero no le
+   * aparecen). Con "Cualquier barbero", todos.
+   */
+  get categoriasVisibles(): { nombre: string; servicios: Servicio[] }[] {
+    if (this.barberoSeleccionado === BARBERO_CUALQUIERA) return this.categorias;
+    return this.categorias
+      .map(c => ({ nombre: c.nombre, servicios: c.servicios.filter(s => esDelMenuDe(s, this.barberoSeleccionado)) }))
+      .filter(c => c.servicios.length > 0);
+  }
+
+  /**
+   * ¿Se puede reservar ese servicio con el barbero elegido? Con "Cualquier barbero", con al menos uno. El admin puede
+   * habilitar solo algunos servicios por barbero (p. ej. primero los Premium); las reglas exigen lo mismo.
+   */
+  habilitado(servicio: Servicio): boolean {
+    if (this.staff.length === 0) return true;
+    if (this.barberoSeleccionado === BARBERO_CUALQUIERA) return this.staff.some(b => ofreceServicio(b, servicio));
+    return ofreceServicio(this.staff.find(b => b.id === this.barberoSeleccionado), servicio);
+  }
+
+  /**
+   * Quiénes atienden el servicio con "Cualquier barbero": los que lo tienen habilitado y, si alguno tiene un precio
+   * propio más alto, solo los del precio más bajo (se asigna quien esté libre, y el cliente no puede terminar pagando
+   * más de lo que vio).
+   */
+  private quienesLoHacen(servicio: Servicio | null): BarberoPublico[] {
+    if (!servicio) return this.staff;
+    const loHacen = this.staff.filter(b => ofreceServicio(b, servicio));
+    const minimo = Math.min(...loHacen.map(b => precioCon(servicio, b.id)));
+    return loHacen.filter(b => precioCon(servicio, b.id) === minimo);
+  }
+
+  /** Lo que cuesta el servicio con el barbero elegido (su precio propio, si tiene). Con "Cualquier barbero", el más bajo. */
+  precio(servicio: Servicio | null): number {
+    if (!servicio) return 0;
+    if (this.barberoSeleccionado !== BARBERO_CUALQUIERA) return precioCon(servicio, this.barberoSeleccionado);
+    const quienes = this.quienesLoHacen(servicio);
+    return quienes.length ? precioCon(servicio, quienes[0].id) : servicio.precio;
+  }
+
+  /** Un servicio propio de un barbero, mirado con "Cualquier barbero": se dice con quién es. */
+  soloCon(servicio: Servicio): string {
+    if (!servicio.soloDe || this.barberoSeleccionado !== BARBERO_CUALQUIERA) return '';
+    return this.staff.find(b => b.id === servicio.soloDe)?.nombre ?? '';
+  }
+
+  /** Si el servicio elegido no se reserva con ese barbero (venía del catálogo, o el admin lo cerró mientras tanto), se suelta. */
+  private revisarServicio() {
+    const servicio = this.servicioSeleccionado;
+    if (!servicio || !this.barberoElegido || this.reservaConfirmada || this.staff.length === 0 || this.habilitado(servicio)) return;
+    const conQuien = this.barberoSeleccionado === BARBERO_CUALQUIERA ? '' : ` con ${this.barberoNombreSeleccionado}`;
+    const deOtro = servicio.soloDe && servicio.soloDe !== this.barberoSeleccionado ? this.staff.find(b => b.id === servicio.soloDe)?.nombre : '';
+    this.avisoServicio = deOtro
+      ? `${servicio.nombre} lo hace solo ${deOtro}. Elige otro servicio o reserva con ${deOtro}.`
+      : `${servicio.nombre} no se está reservando${conQuien} por ahora. Elige otro servicio.`;
+    this.servicioSeleccionado = null;
+    this.horaSeleccionada = null;
+    if (this.paso > 2) this.paso = 2;
   }
 
   seleccionarServicio(servicio: Servicio) {
-    if (!this.reservableEnLinea(servicio)) return;
+    if (!this.habilitado(servicio)) return;
     this.servicioSeleccionado = servicio;
+    this.avisoServicio = '';
     this.horaSeleccionada = null;
-    this.generarHoras();
+    this.construirCeldas();
+    // Si el día que estaba elegido no es para este servicio, se pasa al primero que sí.
+    const primero = this.diaSeleccionado && !this.permiteServicio(this.diaSeleccionado) ? this.primerDiaPermitido() : null;
+    if (primero) this.irAlDia(primero);
+    else this.generarHoras();
     this.irAPaso(3);
   }
 
@@ -420,17 +500,60 @@ export class ReservarComponent implements OnInit, DoCheck {
     this.primerDia = dias[0];
     this.ultimoDia = dias[dias.length - 1];
     const seleccionVigente = this.diaSeleccionado && this.diasReservablesClaves.has(this.diaSeleccionado);
-    if (!seleccionVigente) this.mesVisible = new Date(this.primerDia.getFullYear(), this.primerDia.getMonth(), 1);
+    if (seleccionVigente) {
+      this.construirCeldas();
+      this.generarHoras();
+    } else {
+      this.irAlDia(this.primerDiaPermitido() ?? claveDia(this.primerDia));
+    }
+  }
+
+  /** Muestra el mes de ese día y lo elige. */
+  private irAlDia(clave: string) {
+    const fecha = fechaDesdeClave(clave);
+    this.mesVisible = new Date(fecha.getFullYear(), fecha.getMonth(), 1);
     this.construirCeldas();
-    if (!seleccionVigente) this.seleccionarDia(claveDia(this.primerDia));
-    else this.generarHoras();
+    this.seleccionarDia(clave);
+  }
+
+  /** ¿Ese día se reserva en línea el servicio elegido? (Sin servicio elegido, cualquier día sirve.) */
+  private permiteServicio(dia: string): boolean {
+    return !this.servicioSeleccionado || servicioPermitidoEl(this.ajustes.serviciosPorDia(), dia, this.servicioSeleccionado.id);
+  }
+
+  /** El primer día en que se puede reservar el servicio elegido con el barbero elegido. */
+  private primerDiaPermitido(): string | null {
+    return [...this.diasReservablesClaves].sort()
+      .find(clave => !this.esDiaLibreDelBarbero(fechaDesdeClave(clave)) && this.permiteServicio(clave)) ?? null;
+  }
+
+  /** El día elegido es solo para otros servicios: no se ofrecen horas y se dice cuáles se reservan. */
+  get servicioFueraDelDia(): boolean {
+    return !!this.diaSeleccionado && !this.permiteServicio(this.diaSeleccionado);
+  }
+
+  /** "Acicale Premium", "Acicale Premium y Barba2": lo que se reserva el día elegido. */
+  get serviciosDelDiaTexto(): string {
+    return nombresDeServicios(serviciosDelDia(this.ajustes.serviciosPorDia(), this.diaSeleccionado ?? '') ?? [], this.servicios);
+  }
+
+  /** Si ese día solo se reserva un servicio (y se puede con este barbero), se ofrece cambiarse a él de un toque. */
+  get unicoServicioDelDia(): Servicio | null {
+    const ids = serviciosDelDia(this.ajustes.serviciosPorDia(), this.diaSeleccionado ?? '') ?? [];
+    const posibles = this.servicios.filter(s => ids.includes(s.id!) && this.habilitado(s));
+    return posibles.length === 1 ? posibles[0] : null;
+  }
+
+  get hayDiasLimitados(): boolean {
+    return this.celdas.some(c => c.delMes && c.limitado);
   }
 
   /** El barbero elegido no trabaja ese día de la semana. */
   private esDiaLibreDelBarbero(fecha: Date): boolean {
     if (this.barberoSeleccionado === BARBERO_CUALQUIERA) {
-      // Con "cualquiera", el día solo se cierra si ninguno trabaja.
-      return this.staff.length > 0 && this.staff.every(b => b.diasLibres?.includes(fecha.getDay()));
+      // Con "cualquiera", el día solo se cierra si ninguno de los que hacen el servicio trabaja.
+      const candidatos = this.quienesLoHacen(this.servicioSeleccionado);
+      return candidatos.length > 0 && candidatos.every(b => b.diasLibres?.includes(fecha.getDay()));
     }
     return !!this.staff.find(b => b.id === this.barberoSeleccionado)?.diasLibres?.includes(fecha.getDay());
   }
@@ -447,11 +570,13 @@ export class ReservarComponent implements OnInit, DoCheck {
     this.celdas = Array.from({ length: semanas * 7 }, (_, i) => {
       const fecha = new Date(year, month, inicio + i);
       const clave = claveDia(fecha);
+      const reservable = this.diasReservablesClaves.has(clave) && !this.esDiaLibreDelBarbero(fecha);
       return {
         fecha,
         clave,
         delMes: fecha.getMonth() === month,
-        reservable: this.diasReservablesClaves.has(clave) && !this.esDiaLibreDelBarbero(fecha),
+        reservable,
+        limitado: reservable && !this.permiteServicio(clave),
         esHoy: clave === hoy,
       };
     });
@@ -482,10 +607,18 @@ export class ReservarComponent implements OnInit, DoCheck {
     if (!this.diasReservablesClaves.has(clave)) return;
     this.diaSeleccionado = clave;
     this.horaSeleccionada = null;
-    this.ocupados = new Set();
+    this.ocupacion = new Map();
     this.horasDisponibles = [];
     this.cargandoDisponibilidad = true;
     this.cambioDeDia$.next(clave);
+  }
+
+  /**
+   * Ningún barbero de los que sirven tiene preparado el día elegido (su documento de `ocupacion` aún no existe: lo
+   * crean el panel del admin y la Cloud Function cada noche). No es que esté lleno: se dice distinto.
+   */
+  get diaSinAgenda(): boolean {
+    return !this.cargandoDisponibilidad && this.barberosCandidatos().every(id => !this.ocupacion.has(id));
   }
 
   /** Reservas activas del cliente para el día elegido (sin contar la que está cambiando). */
@@ -500,16 +633,23 @@ export class ReservarComponent implements OnInit, DoCheck {
       this.horasDisponibles = [];
       return;
     }
-
-    // Al reagendar, los bloques de la cita que se cambia cuentan como libres: se los queda la nueva.
-    const propios = new Set(this.reagendando?.slotIds ?? []);
-    const ocupados = propios.size ? new Set([...this.ocupados].filter(id => !propios.has(id))) : this.ocupados;
+    if (this.servicioFueraDelDia) {
+      // Si el admin lo limitó mientras el cliente llenaba sus datos, se le dice por qué se soltó su hora.
+      if (this.horaSeleccionada && !this.isSubmitting && !this.reservaConfirmada) {
+        if (this.paso === 4) this.paso = 3;
+        this.notificaciones.error('Ese día cambió', `Ahora ese día solo se reserva ${this.serviciosDelDiaTexto}. Elige otro día u otro servicio.`);
+      }
+      this.horasDisponibles = [];
+      this.horaSeleccionada = null;
+      this.horaPorRestaurar = null;
+      return;
+    }
 
     this.horasDisponibles = horariosDisponibles({
       dia: this.diaSeleccionado,
       duracion: this.servicioSeleccionado ? duracionDe(this.servicioSeleccionado) : this.ajustes.horario().intervalo,
       barberos: this.barberosCandidatos(),
-      ocupados,
+      mapas: this.mapasDelDia(this.diaSeleccionado),
       disponibilidad: Object.fromEntries(this.staff.map(b => [b.id!, b])),
       horario: this.ajustes.horario(),
     });
@@ -536,12 +676,27 @@ export class ReservarComponent implements OnInit, DoCheck {
 
   private barberosCandidatos(): string[] {
     if (this.barberoSeleccionado !== BARBERO_CUALQUIERA) return [this.barberoSeleccionado];
-    return this.staff.length > 0 ? this.staff.map(b => b.id!) : [BARBERO_CUALQUIERA];
+    if (this.staff.length === 0) return [BARBERO_CUALQUIERA];
+    // Solo los que tienen habilitado el servicio elegido (y lo cobran al precio que vio el cliente).
+    return this.quienesLoHacen(this.servicioSeleccionado).map(b => b.id!);
   }
 
-  /** Con "Cualquiera", asigna el barbero libre con menos bloques ocupados ese día. */
-  private elegirBarbero(libres: string[], dia: string): string {
-    const carga = (id: string) => [...this.ocupados].filter(s => s.startsWith(`${id}_${dia}_`)).length;
+  /**
+   * El mapa de cada barbero ese día. Al reagendar, el rato de la cita que se cambia cuenta como libre: se lo puede
+   * quedar la nueva (p. ej. correrla 20 minutos).
+   */
+  private mapasDelDia(dia: string): Record<string, string | undefined> {
+    const propia = this.reagendando;
+    const mapas: Record<string, string | undefined> = {};
+    for (const [barberoId, o] of this.ocupacion) {
+      mapas[barberoId] = propia && propia.barberoId === barberoId && diaDeCita(propia) === dia ? sinCitas(o, id => id === propia.id) : o.mapa;
+    }
+    return mapas;
+  }
+
+  /** Con "Cualquiera", asigna el barbero libre que tiene menos citas ese día. */
+  private elegirBarbero(libres: string[]): string {
+    const carga = (id: string) => cargaDe(this.ocupacion.get(id)?.mapa ?? '');
     return libres.reduce((mejor, id) => (carga(id) < carga(mejor) ? id : mejor));
   }
 
@@ -598,6 +753,7 @@ export class ReservarComponent implements OnInit, DoCheck {
     this.barberoElegido = false;
     this.barberoSeleccionado = BARBERO_CUALQUIERA;
     this.servicioSeleccionado = null;
+    this.avisoServicio = '';
     this.horaSeleccionada = null;
     this.intentoConfirmar = false;
     this.paso = 1;
@@ -629,7 +785,7 @@ export class ReservarComponent implements OnInit, DoCheck {
 
     const dia = this.diaSeleccionado;
     const hora = this.horaSeleccionada;
-    const barberoId = this.elegirBarbero(hora.barberosLibres, dia);
+    const barberoId = this.elegirBarbero(hora.barberosLibres);
     const barbero = this.staff.find(b => b.id === barberoId);
     const datos = {
       userId: user.uid,
@@ -639,7 +795,8 @@ export class ReservarComponent implements OnInit, DoCheck {
       phone: limpiarCelular(this.clienteTelefono),
       servicioId: this.servicioSeleccionado.id!,
       serviceName: this.servicioSeleccionado.nombre,
-      precio: this.servicioSeleccionado.precio,
+      // El de ese barbero: su precio propio, si tiene (las reglas cobran lo mismo).
+      precio: precioCon(this.servicioSeleccionado, barberoId),
       duracionMinutos: duracionDe(this.servicioSeleccionado),
       barberoId,
       barberoNombre: (barbero?.nombre ?? 'Cualquier barbero').slice(0, 80),

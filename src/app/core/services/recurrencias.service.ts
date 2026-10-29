@@ -1,25 +1,31 @@
 import { Injectable, NgZone, inject } from '@angular/core';
-import { Firestore, addDoc, collection, deleteDoc, doc, updateDoc } from '@angular/fire/firestore';
+import { Firestore, addDoc, collection, deleteDoc, doc, query, updateDoc, where } from '@angular/fire/firestore';
 import { Observable, shareReplay } from 'rxjs';
 import { DatosRecurrencia, Recurrencia } from '../models/recurrencia.model';
 import { escuchar } from '../utils/firestore';
 
 /**
- * Agendas recurrentes (`recurrencias/{id}`). Solo el admin (las reglas lo exigen).
+ * Agendas recurrentes (`recurrencias/{id}`). El admin, las de todos; cada barbero, solo las suyas (las reglas lo exigen).
  * Aquí solo se guarda el plan: los turnos los aparta, cambia o quita la Cloud Function programarRecurrencia
  * cada vez que cambia `actualizadoEn`.
  */
 @Injectable({ providedIn: 'root' })
 export class RecurrenciasService {
   private firestore = inject(Firestore);
+  private zone = inject(NgZone);
   private ref = collection(this.firestore, 'recurrencias');
 
-  private readonly todas$ = escuchar<Recurrencia>(inject(NgZone), this.ref).pipe(
+  private readonly todas$ = escuchar<Recurrencia>(this.zone, this.ref).pipe(
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
   listar(): Observable<Recurrencia[]> {
     return this.todas$;
+  }
+
+  /** Las de un barbero (lo que ve en su panel). */
+  delBarbero(barberoId: string): Observable<Recurrencia[]> {
+    return escuchar<Recurrencia>(this.zone, query(this.ref, where('barberoId', '==', barberoId)));
   }
 
   async crear(datos: DatosRecurrencia): Promise<string> {

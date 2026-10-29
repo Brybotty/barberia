@@ -1,15 +1,22 @@
 /**
- * Agendas recurrentes en Firestore: aparta los turnos de cada serie (citas y bloques, igual que una reserva) y los
- * quita cuando la serie cambia, se pausa o se borra. El plan de cada serie está en recurrencias.ts.
+ * Agendas recurrentes en Firestore: aparta los turnos de cada serie (la cita y su rato en la agenda del barbero, igual
+ * que una reserva) y los quita cuando la serie cambia, se pausa o se borra. El plan de cada serie está en
+ * recurrencias.ts; el mapa de cada día, en ocupacion.ts.
  *
- * Cada día se agenda en una transacción: la cita y sus bloques se crean juntos y solo si ningún bloque existe.
- * Si un cliente reserva esa hora al mismo tiempo, gana uno de los dos (al otro las reglas o la transacción se
- * lo impiden): nunca hay doble reserva.
+ * Cada día se agenda en una transacción: la cita y su rato en `ocupacion/{barberoId}_{dia}` se escriben juntos y
+ * solo si ese rato está libre. Si un cliente reserva esa hora al mismo tiempo, gana uno de los dos (al otro las
+ * reglas o la transacción se lo impiden): nunca hay doble reserva.
+ *
+ * También prepara cada noche los días que les faltan a los barberos (prepararOcupacion): un día sin documento no se
+ * puede reservar desde la página.
  */
-import type { DocumentReference, Firestore } from 'firebase-admin/firestore';
+import { DocumentReference, FieldValue, Firestore, Transaction } from 'firebase-admin/firestore';
 import {
-  BarberoGuardado, HORIZONTE_DIAS, HorarioGuardado, Omitida, Recurrencia, bloquesAConsultar, bloquesDelTurno, citaDeLaSerie, esValida,
-  estaLibre, fechasDeLaSerie, hoyEnColombia, idDeCita, inicioDelTurno, motivoOcupado, motivoParaOmitir, sumarDias,
+  CitaParaMapa, Ocupacion, armarOcupacion, idOcupacion, liberar, ocupar, tieneCierre, tramo, tramoLibre,
+} from './ocupacion';
+import {
+  BarberoGuardado, HORIZONTE_DIAS, HorarioGuardado, Omitida, Recurrencia, citaDeLaSerie, esValida, fechasDeLaSerie, hoyEnColombia,
+  idDeCita, inicioDelTurno, minutosDe, motivoOcupado, motivoParaOmitir, sumarDias,
 } from './recurrencias';
 
 /** Días omitidos que se guardan en la serie (los más próximos). */
@@ -17,6 +24,8 @@ const MAX_OMITIDAS = 30;
 
 /** Estados de un turno que se puede quitar: los que aún no se atienden. Los atendidos y "no asistió" son historia (y plata). */
 const QUITABLES = ['pendiente', 'confirmada', 'cancelada'];
+/** Estados en los que una cita ocupa su rato en la agenda. */
+const ACTIVAS = ['pendiente', 'confirmada'];
 
 export interface Resultado {
   creadas: number;
@@ -86,8 +95,8 @@ export async function programarSerie(
 }
 
 /**
- * Agenda un día de la serie: la cita y sus bloques, solo si la serie sigue igual y la hora está libre.
- * Devuelve 'creada', 'existe' (ese día ya estaba agendado, o se quitó a mano), 'cambio' (la serie cambió o se
+ * Agenda un día de la serie: la cita y su rato en la agenda del barbero, solo si la serie sigue igual y el rato está
+ * libre. Devuelve 'creada', 'existe' (ese día ya estaba agendado, o se quitó a mano), 'cambio' (la serie cambió o se
  * pausó) o el motivo por el que no se pudo.
  */
 export async function agendarDia(
@@ -107,23 +116,25 @@ export async function agendarDia(
     const citaRef = db.doc(`citas/${idDeCita(recurrenciaId, dia)}`);
     if ((await tx.get(citaRef)).exists) return 'existe';
 
-    const bloques = bloquesDelTurno(serie.barberoId, dia, serie.hora, serie.duracionMinutos);
-    const consultados = await tx.getAll(...bloquesAConsultar(serie.barberoId, dia, serie.hora, serie.duracionMinutos).map(id => db.doc(`slots/${id}`)));
-    const existentes = consultados.filter(s => s.exists);
-    if (!estaLibre(serie.barberoId, dia, serie.hora, serie.duracionMinutos, new Set(existentes.map(s => s.id)))) {
-      return { dia, motivo: motivoOcupado(serie, barbero, existentes.some(s => s.get('bloqueo') === true)) };
+    const { ref: diaRef, ocupacion } = await leerDia(db, tx, serie.barberoId, dia);
+    const [k, n] = tramo(minutosDe(serie.hora), serie.duracionMinutos);
+    if (!tramoLibre(ocupacion.mapa, k, n)) {
+      return { dia, motivo: motivoOcupado(serie, barbero, tieneCierre(ocupacion.mapa, k, n)) };
     }
 
     tx.create(citaRef, citaDeLaSerie(serie, recurrenciaId, dia, ahora));
-    for (const bloque of bloques) {
-      tx.create(db.doc(`slots/${bloque.id}`), { barberoId: serie.barberoId, dia, hora: bloque.hora, citaId: citaRef.id });
-    }
+    tx.set(diaRef, {
+      ...ocupacion,
+      mapa: ocupar(ocupacion.mapa, k, n),
+      citas: { ...ocupacion.citas, [citaRef.id]: [k, n] },
+      op: { tipo: 'funcion' },
+    });
     return 'creada';
   });
 }
 
 /**
- * Quita los turnos de la serie que aún no llegan (pendientes, o cancelados a mano) y suelta sus bloques.
+ * Quita los turnos de la serie que aún no llegan (pendientes, o cancelados a mano) y suelta su rato en la agenda.
  * Los que ya pasaron o ya se marcaron (hecho, no asistió) se quedan: son el historial y las ganancias.
  */
 export async function quitarTurnosPorVenir(db: Firestore, recurrenciaId: string, ahora = new Date()): Promise<number> {
@@ -136,9 +147,21 @@ export async function quitarTurnosPorVenir(db: Firestore, recurrenciaId: string,
       const actual = await tx.get(doc.ref);
       // Entre la consulta y ahora el barbero pudo marcarla: entonces se queda.
       if (!actual.exists || !QUITABLES.includes(actual.get('estado'))) return false;
+      const diaRef = db.doc(`ocupacion/${idOcupacion(actual.get('barberoId'), actual.get('dia'))}`);
+      const dia = await tx.get(diaRef);
+      // Turnos de antes del mapa: sus bloques viejos, solo los que siguen siendo suyos.
       const ids = (actual.get('slotIds') as string[] | undefined) ?? [];
       const bloques = ids.length ? await tx.getAll(...ids.map(id => db.doc(`slots/${id}`))) : [];
-      // Solo los bloques que siguen siendo suyos (si estaba cancelada, otra cita pudo tomarlos).
+
+      // Solo una cita activa tiene su rato apartado (al cancelarla se soltó, y otra pudo tomarlo).
+      const suyo = (dia.get('citas') as Ocupacion['citas'] | undefined)?.[doc.id];
+      if (dia.exists && suyo && ACTIVAS.includes(actual.get('estado'))) {
+        tx.update(diaRef, {
+          mapa: liberar(dia.get('mapa') as string, suyo[0], suyo[1]),
+          [`citas.${doc.id}`]: FieldValue.delete(),
+          op: { tipo: 'funcion' },
+        });
+      }
       for (const bloque of bloques) if (bloque.exists && bloque.get('citaId') === doc.id) tx.delete(bloque.ref);
       tx.delete(doc.ref);
       return true;
@@ -146,6 +169,61 @@ export async function quitarTurnosPorVenir(db: Firestore, recurrenciaId: string,
     if (quitada) quitadas++;
   }
   return quitadas;
+}
+
+/**
+ * Crea los días que les faltan a los barberos, de hoy a HORIZONTE_DIAS adelante, armados con las citas que ya había
+ * y los cierres de la agenda vieja. Corre cada noche (y lo mismo hace el panel del admin al abrirse). Cada día se arma
+ * en su propia transacción, leyendo solo las citas de ese día: lo leído y lo escrito no se pueden desfasar (una cita
+ * cancelada entre la lectura y la escritura no queda ocupando), y una noche normal solo lee el día que entra.
+ * Devuelve cuántos creó.
+ */
+export async function prepararOcupacion(db: Firestore, ahora = new Date()): Promise<number> {
+  const hoy = hoyEnColombia(ahora);
+  const hasta = sumarDias(hoy, HORIZONTE_DIAS);
+  const [barberos, existentes] = await Promise.all([
+    db.collection('barberos').get(),
+    db.collection('ocupacion').where('dia', '>=', hoy).where('dia', '<=', hasta).select().get(),
+  ]);
+  const hay = new Set(existentes.docs.map(d => d.id));
+  let creados = 0;
+  for (let i = 0; i <= HORIZONTE_DIAS; i++) {
+    const dia = sumarDias(hoy, i);
+    for (const b of barberos.docs) {
+      if (b.id === 'cualquiera' || hay.has(idOcupacion(b.id, dia))) continue;
+      const creado = await db.runTransaction(async tx => {
+        const { ref, ocupacion, existe } = await leerDia(db, tx, b.id, dia);
+        if (existe) return false;
+        tx.create(ref, { ...ocupacion, op: { tipo: 'funcion' } });
+        return true;
+      });
+      if (creado) creados++;
+    }
+  }
+  return creados;
+}
+
+/** El mapa de un barbero un día, dentro de la transacción. Si aún no tiene documento, se arma con lo que había. */
+async function leerDia(db: Firestore, tx: Transaction, barberoId: string, dia: string): Promise<{ ref: DocumentReference; ocupacion: Ocupacion; existe: boolean }> {
+  const ref = db.doc(`ocupacion/${idOcupacion(barberoId, dia)}`);
+  const snap = await tx.get(ref);
+  if (snap.exists) {
+    const datos = snap.data() as Ocupacion;
+    return { ref, existe: true, ocupacion: { barberoId, dia, mapa: datos.mapa, citas: datos.citas ?? {} } };
+  }
+  const [citas, cierres] = await Promise.all([
+    tx.get(db.collection('citas').where('barberoId', '==', barberoId).where('dia', '==', dia)),
+    tx.get(db.collection('slots').where('barberoId', '==', barberoId).where('dia', '==', dia).where('bloqueo', '==', true)),
+  ]);
+  return {
+    ref,
+    existe: false,
+    ocupacion: armarOcupacion(
+      barberoId, dia,
+      citas.docs.map(d => ({ ...(d.data() as Omit<CitaParaMapa, 'id'>), id: d.id })),
+      cierres.docs.map(d => d.data() as { hora?: string; motivo?: string }),
+    ),
+  };
 }
 
 /** Anota el avance en la serie, solo si sigue siendo la misma versión (si la editaron, lo anota la siguiente pasada). */

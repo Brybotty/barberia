@@ -1,6 +1,7 @@
 import { Component, ElementRef, NgZone, OnDestroy, effect, inject, viewChild } from '@angular/core';
 import { DecimalPipe, NgClass } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { enNavegador } from '../../../../core/utils/plataforma';
 import { CLIENTE } from '../../../../config/cliente';
 import { ConsentimientoService } from '../../../../core/services/consentimiento.service';
 import { RevelarDirective } from '../../../../shared/directives/revelar.directive';
@@ -123,7 +124,7 @@ export class VideoGalleryComponent implements OnDestroy {
   constructor() {
     // Con permiso, el script de Instagram (pesado) se pide solo cuando la galería está por aparecer.
     effect(() => {
-      if (!this.consentimiento.instagram() || !this.pista()) return;
+      if (!enNavegador || !this.consentimiento.instagram() || !this.pista()) return;
       this.observador?.disconnect();
       if (!('IntersectionObserver' in window)) {
         this.cargarInstagram();

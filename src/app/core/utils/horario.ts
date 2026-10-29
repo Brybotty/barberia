@@ -5,20 +5,20 @@ import { CLIENTE } from '../../config/cliente';
 /** Cada cuánto empieza un turno en la agenda, en minutos, contando desde la hora de apertura del día. */
 export const INTERVALO = 40;
 /**
- * Duración de cada bloque que se guarda en `slots`, en minutos. Las reglas de Firestore suponen lo mismo.
- * Es más corto que el turno porque no todos los días abren a la misma hora (9:20 unos, 9:00 otros): con
- * bloques de 20 min, dos citas que se cruzan comparten siempre algún bloque, empiecen en la rejilla que empiecen.
- * Las horas de apertura y de cierre deben ser múltiplos de este valor.
+ * Paso de las horas de apertura y de cierre de la barbería (Ajustes): deben ser múltiplos de este valor. La agenda
+ * en sí va al minuto, de 5 en 5 (ver ocupacion.ts): este paso es solo el de esos selectores.
  */
-export const BLOQUE = 20;
+export const PASO_HORARIO = 20;
+/**
+ * Hasta qué hora agenda el equipo desde el panel (admin y barberos), aunque la barbería ya haya cerrado: la cita debe
+ * terminar a más tardar a esta hora (10:00 p. m.). La reserva en línea sigue con el horario de Ajustes. Las reglas de
+ * Firestore ponen el mismo tope a las citas que se agenda un barbero (citaDelBarbero).
+ */
+export const LIMITE_DEL_EQUIPO = 22 * 60;
 /** Cuántos días hacia adelante se puede reservar con la agenda continua. Las reglas de Firestore suponen lo mismo. */
 export const DIAS_RESERVABLES = 14;
 /** Lo más lejos que puede llegar un periodo de agenda, en días desde hoy (las reglas rechazan una reserva más lejana). */
 export const MAX_DIAS_AGENDA = 60;
-/** Bloques que puede ocupar una reserva en línea (las reglas no dejan pasar de aquí): 2 h 20 min. */
-export const MAX_BLOQUES_EN_LINEA = 7;
-/** Bloques de una cita que el cliente puede cambiar de horario por su cuenta (ver MisCitasComponent.sePuedeCambiar). */
-export const MAX_BLOQUES_REAGENDAR = 4;
 
 export interface Horario extends HorarioAtencion {
   intervalo: number;
@@ -121,11 +121,6 @@ export function duracionDe(c: { duracionMinutos?: number }): number {
   return c.duracionMinutos && c.duracionMinutos > 0 ? c.duracionMinutos : INTERVALO;
 }
 
-/** Bloques de agenda que ocupa una duración (40 min ocupan 2; una hora, 3). */
-export function bloquesDe(duracion: number): number {
-  return Math.ceil(duracion / BLOQUE);
-}
-
 export function compararCitas(a: Cita, b: Cita): number {
   return diaDeCita(a).localeCompare(diaDeCita(b)) || minutosDeCita(a) - minutosDeCita(b);
 }
@@ -135,94 +130,12 @@ export function normalizarEstado(estado: string): EstadoCita {
   return (estado === 'completado' ? 'completada' : estado) as EstadoCita;
 }
 
-// --- Bloques de agenda (colección `slots`) ---
-
-export interface Slot {
-  id: string;
-  barberoId: string;
-  dia: string;
-  /** 'HH:mm' */
-  hora: string;
-  /** Cita que lo ocupa. Los bloqueos del barbero no tienen. */
-  citaId?: string;
-  /** El barbero cerró este bloque (almuerzo, permiso, día libre). */
-  bloqueo?: boolean;
-  motivo?: string;
-}
-
-export function idDeSlot(barberoId: string, dia: string, minutos: number): string {
-  return `${barberoId}_${dia}_${minutosAHora24(minutos).replace(':', '')}`;
-}
-
-/** Bloques de 20 min que ocupa un servicio. Uno de 60 min que empieza a las 10:00 ocupa 10:00, 10:20 y 10:40. */
-export function slotsDeCita(barberoId: string, dia: string, inicio: number, duracion: number): Slot[] {
-  const slots: Slot[] = [];
-  for (let t = inicio; t < inicio + duracion; t += BLOQUE) {
-    slots.push({ id: idDeSlot(barberoId, dia, t), barberoId, dia, hora: minutosAHora24(t) });
-  }
-  return slots;
-}
-
-/**
- * ¿El barbero tiene libre ese rato? Mira los bloques de 20 min y, además, los de media hora que dejaron las
- * citas y cierres guardados antes del cambio a turnos de 40 min. Esos bloques viejos duran 30 min y los que
- * empiezan "a y media" no caen en la rejilla nueva, así que se comparan por horario y no por su ID. El bloque
- * en punto que sigue a uno de y media es la continuación de esa cita vieja: también cuenta como de 30 min.
- */
-export function estaLibre(barberoId: string, dia: string, inicio: number, duracion: number, ocupados: ReadonlySet<string>): boolean {
-  if (slotsDeCita(barberoId, dia, inicio, duracion).some(s => ocupados.has(s.id))) return false;
-  const fin = inicio + bloquesDe(duracion) * BLOQUE;
-  for (let yMedia = Math.floor(inicio / 60) * 60 - 90; yMedia < fin; yMedia += 60) {
-    if (!ocupados.has(idDeSlot(barberoId, dia, yMedia))) continue;
-    if (yMedia + 30 > inicio) return false;
-    if (yMedia + 60 > inicio && ocupados.has(idDeSlot(barberoId, dia, yMedia + 30))) return false;
-  }
-  return true;
-}
-
 /** ¿El barbero trabaja ese día y a esa hora? (sin mirar las citas: solo su día libre y su descanso). */
 export function trabaja(disponibilidad: Disponibilidad | undefined, dia: string, inicio: number, duracion: number): boolean {
   if (!disponibilidad) return true;
   if (disponibilidad.diasLibres?.includes(fechaDesdeClave(dia).getDay())) return false;
   const descanso = disponibilidad.descanso;
   return !descanso || inicio >= descanso.hasta || inicio + duracion <= descanso.desde;
-}
-
-export interface HorarioDisponible {
-  minutos: number;
-  etiqueta: string;
-  /** Barberos (de los candidatos) que tienen libres todos los bloques del servicio a esa hora. */
-  barberosLibres: string[];
-}
-
-export function horariosDisponibles(opciones: {
-  dia: string;
-  duracion: number;
-  barberos: string[];
-  ocupados: ReadonlySet<string>;
-  /** Día libre y descanso de cada barbero (por id). */
-  disponibilidad?: Record<string, Disponibilidad | undefined>;
-  ahora?: Date;
-  horario?: Horario;
-}): HorarioDisponible[] {
-  const { dia, duracion, barberos, ocupados, disponibilidad = {}, ahora = new Date(), horario = HORARIO } = opciones;
-  const hoy = claveDia(ahora);
-  if (dia < hoy || estaCerrado(dia, horario)) return [];
-  const minutosAhora = dia === hoy ? ahora.getHours() * 60 + ahora.getMinutes() : -1;
-
-  // Los turnos se cuentan desde la apertura de ese día: 9:20, 10:00, 10:40... o 9:00, 9:40, 10:20...
-  const apertura = aperturaDe(horario, fechaDesdeClave(dia).getDay());
-  const resultado: HorarioDisponible[] = [];
-  for (let inicio = apertura; inicio + duracion <= horario.cierre; inicio += horario.intervalo) {
-    if (inicio <= minutosAhora) continue;
-    const barberosLibres = barberos.filter((b) =>
-      trabaja(disponibilidad[b], dia, inicio, duracion) && estaLibre(b, dia, inicio, duracion, ocupados),
-    );
-    if (barberosLibres.length > 0) {
-      resultado.push({ minutos: inicio, etiqueta: formatearHora12(inicio), barberosLibres });
-    }
-  }
-  return resultado;
 }
 
 /** La barbería no abre ese día: es un día cerrado de la semana o una fecha de cierre (festivo, vacaciones). */
@@ -326,12 +239,12 @@ export function extenderAgenda(agenda: Agenda, dias: number, hoy = claveDia(new 
 }
 
 /**
- * Las horas del día cada 20 minutos, para selectores (descansos, cierres, mover una cita): desde la apertura
+ * Las horas del día cada `paso` minutos, para selectores (descansos, cierres, mover una cita): desde la apertura
  * más temprana de la semana. Con `hastaElCierre` incluye la hora de cierre (fin de un rango).
  */
-export function opcionesDeHora(horario: HorarioAtencion = HORARIO, hastaElCierre = false): { minutos: number; etiqueta: string }[] {
+export function opcionesDeHora(horario: HorarioAtencion = HORARIO, hastaElCierre = false, paso = PASO_HORARIO): { minutos: number; etiqueta: string }[] {
   const opciones = [];
-  for (let t = primeraApertura(horario); hastaElCierre ? t <= horario.cierre : t < horario.cierre; t += BLOQUE) {
+  for (let t = primeraApertura(horario); hastaElCierre ? t <= horario.cierre : t < horario.cierre; t += paso) {
     opciones.push({ minutos: t, etiqueta: formatearHora12(t) });
   }
   return opciones;
@@ -421,15 +334,4 @@ export function resumenHorario(horario: HorarioAtencion = HORARIO): FilaHorario[
     abierto: g.horas !== 'Cerrado',
     incluye: g.incluye,
   }));
-}
-
-/** Junta bloques seguidos en rangos: [600, 620, 640, 780] -> [{ desde: 600, hasta: 660 }, { desde: 780, hasta: 800 }]. */
-export function rangosDe(minutos: number[]): { desde: number; hasta: number }[] {
-  const rangos: { desde: number; hasta: number }[] = [];
-  for (const m of [...minutos].sort((a, b) => a - b)) {
-    const ultimo = rangos[rangos.length - 1];
-    if (ultimo && ultimo.hasta === m) ultimo.hasta = m + BLOQUE;
-    else rangos.push({ desde: m, hasta: m + BLOQUE });
-  }
-  return rangos;
 }

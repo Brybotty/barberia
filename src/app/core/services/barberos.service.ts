@@ -80,6 +80,11 @@ export class BarberosService {
     }
   }
 
+  /** Servicios que no se reservan en línea con ese barbero (solo el admin). Sin ninguno, se reservan todos. */
+  guardarServiciosCerrados(barberoId: string, cerrados: string[]): Promise<void> {
+    return updateDoc(doc(this.barberosRef, barberoId), { serviciosCerrados: [...new Set(cerrados)].sort() });
+  }
+
   /** Día libre de cada semana y descanso fijo. Lo cambia el propio barbero (o el admin). */
   guardarDisponibilidad(barberoId: string, disponibilidad: Disponibilidad): Promise<void> {
     return updateDoc(doc(this.barberosRef, barberoId), {
@@ -121,6 +126,8 @@ function publico(barbero: Barbero): Omit<BarberoPublico, 'id'> {
     orden: Number.isFinite(Number(barbero.orden)) ? Number(barbero.orden) : 0,
     diasLibres: [...(barbero.diasLibres ?? [])].sort(),
     descanso: barbero.descanso ?? null,
+    // Se conserva al editar el perfil en Equipo (este documento se escribe completo).
+    serviciosCerrados: [...(barbero.serviciosCerrados ?? [])],
   };
 }
 

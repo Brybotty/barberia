@@ -47,12 +47,12 @@ interface EnlaceNav {
           <nav class="hidden xl:flex items-center gap-7" aria-label="Principal">
             @for (link of links(); track link.texto) {
               @if (link.externo) {
-                <a [href]="link.externo" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-[13px] font-bold text-neutral-400 hover:text-white tracking-wide transition-colors">
+                <a [href]="link.externo" target="_blank" rel="noopener" class="enlace-toque !gap-1 text-[13px] font-bold text-neutral-400 hover:text-white tracking-wide transition-colors">
                   {{ link.texto }}
                   <app-icono nombre="externo" class="h-3 w-3" [grosor]="2.4" />
                 </a>
               } @else {
-                <a [routerLink]="link.ruta" [fragment]="link.fragmento" (click)="alNavegar(link)" class="relative text-[13px] font-bold text-neutral-400 hover:text-white tracking-wide transition-colors after:absolute after:left-0 after:-bottom-1.5 after:h-px after:w-0 after:bg-detalle-400 after:transition-all hover:after:w-full">{{ link.texto }}</a>
+                <a [routerLink]="link.ruta" [fragment]="link.fragmento" (click)="alNavegar(link)" class="enlace-toque relative text-[13px] font-bold text-neutral-400 hover:text-white tracking-wide transition-colors after:absolute after:left-0 after:-bottom-1.5 after:h-px after:w-0 after:bg-detalle-400 after:transition-all hover:after:w-full">{{ link.texto }}</a>
               }
             }
           </nav>

@@ -9,7 +9,6 @@ import { CitasService } from '../../../core/services/citas.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { Barbero } from '../../../core/models/barbero.model';
 import { BARBERO_CUALQUIERA, Cita, esActiva, etiquetaEstado } from '../../../core/models/cita.model';
-import { ConfirmarService } from '../../../core/services/confirmar.service';
 import { CLIENTE } from '../../../config/cliente';
 import { DisponibilidadComponent } from '../../../shared/components/disponibilidad/disponibilidad.component';
 import { RedSocialComponent } from '../../../shared/components/red-social/red-social.component';
@@ -17,8 +16,20 @@ import { Usuario } from '../../../core/models/usuario.model';
 import { claveDia, compararCitas, diaDeCita, inicioDeCita } from '../../../core/utils/horario';
 import { PERIODOS, Periodo, comisionDe, enPeriodo, rangoDe, resumir, valorCobrado } from '../../../core/utils/ganancias';
 import { enlaceWhatsApp } from '../../../core/utils/colombia';
+import { ENLACE_RESENA, pedirResenaPorWhatsApp } from '../../../core/utils/resenas';
+import { ResumenAsistencia, claveCliente, multaParaCobrarEn, resumirAsistencia } from '../../../core/utils/asistencia';
+import { CaritaComponent } from '../../../shared/components/carita/carita.component';
+import { NoAsistioComponent } from '../../../shared/components/no-asistio/no-asistio.component';
 import { CompletarCitaComponent } from '../../../shared/components/completar-cita/completar-cita.component';
 import { RecurrenteComponent } from '../../../shared/components/recurrente/recurrente.component';
+import { IconoComponent } from '../../../shared/components/icono/icono.component';
+import { AdminCitasComponent } from '../../admin/admin-citas/admin-citas.component';
+import { AdminRecurrentesComponent } from '../../admin/admin-recurrentes/admin-recurrentes.component';
+import { NuevaCitaComponent } from '../../../shared/components/nueva-cita/nueva-cita.component';
+import { ServiciosService } from '../../../core/services/servicios.service';
+import { Servicio } from '../../../core/models/servicio.model';
+
+type Vista = 'agenda' | 'citas' | 'recurrentes' | 'disponibilidad' | 'cortes';
 
 interface Datos {
   perfil: Usuario | null;
@@ -30,7 +41,10 @@ interface Datos {
 @Component({
   selector: 'app-barbero-dashboard',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, NgClass, RouterLink, CompletarCitaComponent, DisponibilidadComponent, RedSocialComponent, RecurrenteComponent],
+  imports: [
+    CurrencyPipe, DatePipe, NgClass, RouterLink, CompletarCitaComponent, DisponibilidadComponent, RedSocialComponent, RecurrenteComponent,
+    IconoComponent, AdminCitasComponent, AdminRecurrentesComponent, NuevaCitaComponent, CaritaComponent, NoAsistioComponent,
+  ],
   template: `
     <div class="min-h-screen bg-neutral-950 text-white">
       <header class="sticky top-0 z-40 border-b border-white/10 bg-neutral-950/90 backdrop-blur-xl">
@@ -45,7 +59,7 @@ interface Datos {
         </div>
       </header>
 
-      <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 md:py-12">
+      <main class="max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-28 md:py-12">
         <p class="text-[11px] font-extrabold uppercase tracking-[0.25em] text-detalle-400 mb-2">{{ hoy | date:"EEEE d 'de' MMMM" }}</p>
         <h1 class="font-display text-3xl md:text-4xl font-black">{{ saludo() }}</h1>
         @if (barbero(); as b) {
@@ -63,10 +77,10 @@ interface Datos {
           </div>
         }
 
-        <!-- Secciones del panel -->
-        <div class="mt-8 flex gap-1 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 border-b border-white/10" role="tablist" aria-label="Secciones de mi panel">
+        <!-- Secciones del panel (en celular van en la barra de abajo) -->
+        <div class="mt-8 hidden gap-1 overflow-x-auto scrollbar-hide border-b border-white/10 md:flex" role="tablist" aria-label="Secciones de mi panel">
           @for (v of vistas; track v.id) {
-            <button type="button" role="tab" [attr.aria-selected]="vista() === v.id" (click)="vista.set(v.id)"
+            <button type="button" role="tab" [attr.aria-selected]="vista() === v.id" (click)="ir(v.id)"
                     class="relative shrink-0 px-4 py-3 text-sm font-bold transition-colors"
                     [ngClass]="vista() === v.id ? 'text-white' : 'text-neutral-500 hover:text-neutral-200'">
               {{ v.nombre }}
@@ -87,7 +101,31 @@ interface Datos {
           </section>
         }
 
-        @if (vista() !== 'disponibilidad') {
+        @if (vista() === 'citas') {
+          <section class="mt-8">
+            @if (barbero(); as b) {
+              <app-admin-citas [barberoFijo]="b" />
+            } @else {
+              <div class="rounded-3xl border border-dashed border-white/10 py-12 px-6 text-center text-neutral-500">
+                El calendario es de cada barbero. Vincula tu cuenta a un perfil en Admin → Staff &amp; Barberos, o mira todas las citas en el panel de admin.
+              </div>
+            }
+          </section>
+        }
+
+        @if (vista() === 'recurrentes') {
+          <section class="mt-8">
+            @if (barbero(); as b) {
+              <app-admin-recurrentes [barberoFijo]="b" />
+            } @else {
+              <div class="rounded-3xl border border-dashed border-white/10 py-12 px-6 text-center text-neutral-500">
+                Las agendas recurrentes son de cada barbero. Vincula tu cuenta a un perfil en Admin → Staff &amp; Barberos, o créalas desde el panel de admin.
+              </div>
+            }
+          </section>
+        }
+
+        @if (vista() === 'agenda' || vista() === 'cortes') {
         <!-- ============ RESUMEN ============ -->
         <section class="mt-8">
           <div class="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 mb-5">
@@ -125,7 +163,14 @@ interface Datos {
         @if (vista() === 'agenda') {
         <!-- ============ AGENDA DE HOY ============ -->
         <section class="mt-12">
-          <h2 class="text-xl font-black mb-5">Tus turnos de hoy <span class="text-neutral-500 font-bold">({{ citasHoy().length }})</span></h2>
+          <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-xl font-black">Tus turnos de hoy <span class="text-neutral-500 font-bold">({{ citasHoy().length }})</span></h2>
+            @if (barbero()) {
+              <button type="button" (click)="nuevaVisible.set(true)" class="boton-acento">
+                <app-icono nombre="mas" class="h-4 w-4" [grosor]="2.4" /> Nueva cita
+              </button>
+            }
+          </div>
           @if (datos() === undefined) {
             <div class="h-40 rounded-3xl bg-neutral-900 animate-pulse"></div>
           } @else if (citasHoy().length === 0) {
@@ -146,12 +191,17 @@ interface Datos {
                           'bg-emerald-500/10 text-emerald-400': cita.estado === 'completada'
                         }">{{ etiqueta(cita) }}</span>
                   <p class="text-2xl font-black">{{ cita.horaStr }}</p>
-                  <p class="text-neutral-300 font-bold mt-1">{{ cita.userName }}</p>
+                  <p class="mt-1 flex min-w-0 items-center gap-2"><span class="truncate font-bold text-neutral-300">{{ cita.userName }}</span> <app-carita [resumen]="asistenciaDe(cita)" [conTexto]="true" /></p>
                   @if (cita.recurrenciaId) { <app-recurrente class="mt-2" [frecuencia]="cita.frecuencia" /> }
+                  @if (cita.estado === 'no-asistio' && cita.multa) { <p class="mt-2 text-xs font-bold text-red-300">Multa de {{ cita.multa | currency:'COP':'symbol-narrow':'1.0-0' }}: se cobra en su próxima visita</p> }
                   <p class="text-sm text-neutral-500 mt-3">{{ cita.serviceName }} · <span class="text-neutral-300">{{ valorCobrado(cita) | currency:'COP':'symbol-narrow':'1.0-0' }}</span></p>
                   @if (cita.phone && esActiva(cita.estado)) {
                     <a [href]="recordatorio(cita)" target="_blank" rel="noopener" class="enlace-toque mt-2 text-xs font-bold text-emerald-300 hover:text-emerald-200">
                       <app-red-social red="whatsapp" class="h-4 w-4" /> Recordarle por WhatsApp
+                    </a>
+                  } @else if (cita.phone && cita.estado === 'completada' && enlaceResena) {
+                    <a [href]="pedirResena(cita)" target="_blank" rel="noopener" class="enlace-toque mt-2 text-xs font-bold text-detalle-200 hover:text-white">
+                      <app-red-social red="whatsapp" class="h-4 w-4" /> Pedirle una reseña en Google
                     </a>
                   } @else if (cita.phone) {
                     <p class="mt-2 text-xs text-neutral-500">{{ cita.phone }}</p>
@@ -180,7 +230,7 @@ interface Datos {
                     <p class="text-lg font-black leading-tight">{{ inicio(cita) | date:'d MMM' }}</p>
                   </div>
                   <div class="flex-1 min-w-0">
-                    <p class="font-bold truncate">{{ cita.horaStr }} · {{ cita.userName }}</p>
+                    <p class="flex min-w-0 items-center gap-2"><span class="truncate font-bold">{{ cita.horaStr }} · {{ cita.userName }}</span> <app-carita [resumen]="asistenciaDe(cita)" /></p>
                     <p class="flex min-w-0 items-center gap-2 text-sm text-neutral-500">
                       <span class="truncate">{{ cita.serviceName }}</span>
                       @if (cita.recurrenciaId) { <app-recurrente [frecuencia]="cita.frecuencia" [corto]="true" /> }
@@ -236,8 +286,31 @@ interface Datos {
       </main>
 
       @if (completando(); as cita) {
-        <app-completar-cita [cita]="cita" (cerrar)="completando.set(null)" />
+        <app-completar-cita [cita]="cita" [multaPendiente]="multaParaCobrar(cita)" (cerrar)="completando.set(null)" />
       }
+
+      @if (noAsistiendo(); as cita) {
+        <app-no-asistio [cita]="cita" (cerrar)="noAsistiendo.set(null)" />
+      }
+
+      <!-- Una cita que el barbero se agenda a sí mismo (también después del cierre, hasta las 10:00 p. m.) -->
+      @if (nuevaVisible() && barbero(); as b) {
+        <app-nueva-cita [barberoFijo]="b" [servicios]="servicios()" (cerrar)="nuevaVisible.set(false)" (agendada)="nuevaVisible.set(false)" />
+      }
+
+      <!-- Barra de abajo (celular) -->
+      <!-- Como la del admin: si no caben los cinco (pantallas de 320 px), se desliza. -->
+      <nav class="fixed inset-x-0 bottom-0 z-50 flex overflow-x-auto border-t border-white/10 bg-black/95 px-1 pt-1 backdrop-blur-xl scrollbar-hide pb-seguro md:hidden" aria-label="Secciones de mi panel">
+        @for (v of vistas; track v.id) {
+          <button type="button" (click)="ir(v.id)" [attr.aria-current]="vista() === v.id ? 'page' : null" [attr.aria-label]="v.nombre"
+                  class="relative flex min-h-12 min-w-[70px] shrink-0 flex-1 flex-col items-center justify-center gap-1 px-1"
+                  [ngClass]="vista() === v.id ? 'text-white' : 'text-neutral-500'">
+            @if (vista() === v.id) { <span class="absolute inset-x-4 top-0 h-0.5 rounded-full bg-detalle-400"></span> }
+            <app-icono [nombre]="v.icono" class="h-5 w-5" [ngClass]="vista() === v.id ? 'text-detalle-300' : ''" [grosor]="1.8" />
+            <span class="whitespace-nowrap text-[11px] font-bold">{{ v.corto }}</span>
+          </button>
+        }
+      </nav>
     </div>
   `,
 })
@@ -246,17 +319,23 @@ export class BarberoDashboardComponent {
   private barberosService = inject(BarberosService);
   private citasService = inject(CitasService);
   private notificaciones = inject(NotificationService);
-  private confirmar = inject(ConfirmarService);
 
-  readonly vistas = [
-    { id: 'agenda', nombre: 'Agenda' },
-    { id: 'disponibilidad', nombre: 'Mi disponibilidad' },
-    { id: 'cortes', nombre: 'Cortes y ganancias' },
-  ] as const;
-  readonly vista = signal<'agenda' | 'disponibilidad' | 'cortes'>('agenda');
+  readonly vistas: { id: Vista; nombre: string; corto: string; icono: string }[] = [
+    { id: 'agenda', nombre: 'Agenda', corto: 'Agenda', icono: 'tablero' },
+    { id: 'citas', nombre: 'Calendario y lista', corto: 'Citas', icono: 'calendario' },
+    { id: 'recurrentes', nombre: 'Agendas recurrentes', corto: 'Recurrentes', icono: 'repetir' },
+    { id: 'disponibilidad', nombre: 'Mi disponibilidad', corto: 'Horario', icono: 'reloj' },
+    { id: 'cortes', nombre: 'Cortes y ganancias', corto: 'Ganancias', icono: 'moneda' },
+  ];
+  readonly vista = signal<Vista>('agenda');
+  /** Formulario de "Nueva cita" abierto (solo con un perfil de barbero enlazado). */
+  readonly nuevaVisible = signal(false);
+  readonly servicios = toSignal(inject(ServiciosService).actuales(), { initialValue: [] as Servicio[] });
 
   readonly esActiva = esActiva;
   readonly valorCobrado = valorCobrado;
+  readonly enlaceResena = ENLACE_RESENA;
+  readonly pedirResena = pedirResenaPorWhatsApp;
   readonly periodos = PERIODOS;
   readonly hoy = new Date();
   private readonly diaHoy = claveDia(this.hoy);
@@ -264,6 +343,8 @@ export class BarberoDashboardComponent {
   readonly periodo = signal<Periodo>('semana');
   /** Cita que se está marcando como hecha. */
   readonly completando = signal<Cita | null>(null);
+  /** Cita que se está marcando "No asistió" (con la multa, si el admin la activó). */
+  readonly noAsistiendo = signal<Cita | null>(null);
 
   /** undefined mientras carga. */
   readonly datos = toSignal(
@@ -275,6 +356,21 @@ export class BarberoDashboardComponent {
       }),
     ),
   );
+
+  /** Los "No asistió" de toda la barbería (pocos): la carita cuenta también las faltas que el cliente tuvo con otro barbero. */
+  private readonly faltas = toSignal(this.citasService.noAsistieron().pipe(catchError(() => of<Cita[]>([]))), { initialValue: [] as Cita[] });
+  /** Las caritas de asistencia de los clientes (ver utils/asistencia.ts). */
+  private readonly asistencia = computed(() => resumirAsistencia(this.datos()?.citas ?? [], this.faltas()));
+
+  asistenciaDe(cita: Cita): ResumenAsistencia | undefined {
+    const clave = claveCliente(cita);
+    return clave ? this.asistencia().get(clave) : undefined;
+  }
+
+  /** La multa que el cliente debe de antes: se ofrece cobrarla al marcar esta cita "Hecho". */
+  multaParaCobrar(cita: Cita): number {
+    return multaParaCobrarEn(cita, this.asistenciaDe(cita));
+  }
 
   readonly barbero = computed(() => this.datos()?.barberos[0] ?? null);
   readonly comision = computed(() => (this.barbero() ? comisionDe(this.barbero()) : 100));
@@ -327,13 +423,18 @@ export class BarberoDashboardComponent {
     );
   }
 
+  ir(vista: Vista) {
+    this.vista.set(vista);
+    window.scrollTo({ top: 0 });
+  }
+
   /** WhatsApp del cliente con el recordatorio ya escrito: el barbero solo toca "enviar". No gasta correos. */
   recordatorio(cita: Cita): string {
     const dia = diaDeCita(cita);
     const manana = claveDia(new Date(this.hoy.getFullYear(), this.hoy.getMonth(), this.hoy.getDate() + 1));
     const cuando = dia === this.diaHoy ? 'hoy' : dia === manana ? 'mañana'
       : `el ${inicioDeCita(cita).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}`;
-    const nombre = cita.userName.trim().split(/\s+/)[0] ?? '';
+    const nombre = (cita.userName ?? '').trim().split(/\s+/)[0] ?? '';
     // Las citas que agendó el panel (y las recurrentes) no son de ninguna cuenta: "Mis reservas" no las muestra.
     const siNoPuede = cita.userId
       ? `Si no puedes venir, cámbiala o cancélala aquí: ${location.origin}/mis-citas`
@@ -349,22 +450,11 @@ export class BarberoDashboardComponent {
     return etiquetaEstado(cita, 'equipo');
   }
 
-  async marcarNoAsistio(cita: Cita) {
+  marcarNoAsistio(cita: Cita) {
     if (new Date() < inicioDeCita(cita)) {
       this.notificaciones.error('Aún no es la hora', `No puedes marcar "No asistió" antes de la hora acordada (${cita.horaStr}).`);
       return;
     }
-    const seguro = await this.confirmar.preguntar({
-      titulo: '¿El cliente no asistió?',
-      texto: `${cita.userName}, ${cita.horaStr}. La cita queda marcada como "No asistió".`,
-      aceptar: 'Sí, no asistió',
-    });
-    if (!seguro) return;
-    try {
-      await this.citasService.cambiarEstado(cita, 'no-asistio');
-    } catch (e) {
-      console.error(e);
-      this.notificaciones.error('Error al actualizar el estado');
-    }
+    this.noAsistiendo.set(cita);
   }
 }

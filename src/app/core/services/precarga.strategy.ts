@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { PreloadingStrategy, Route } from '@angular/router';
 import { EMPTY, Observable } from 'rxjs';
+import { enNavegador } from '../utils/plataforma';
 
 /** Lo que dice el navegador de la conexión (no está en todos: Safari no lo trae). */
 interface Conexion {
@@ -16,6 +17,7 @@ interface Conexion {
 @Injectable({ providedIn: 'root' })
 export class PrecargaSelectiva implements PreloadingStrategy {
   preload(ruta: Route, cargar: () => Observable<unknown>): Observable<unknown> {
+    if (!enNavegador) return EMPTY;
     const conexion = (navigator as Navigator & { connection?: Conexion }).connection;
     if (!ruta.data?.['precargar'] || conexion?.saveData || /2g/.test(conexion?.effectiveType ?? '')) return EMPTY;
     return new Observable(suscriptor => {

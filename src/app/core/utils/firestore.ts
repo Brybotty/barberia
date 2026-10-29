@@ -1,8 +1,9 @@
 import { NgZone } from '@angular/core';
 import { DocumentData, DocumentReference, Query, onSnapshot } from '@angular/fire/firestore';
-import { MonoTypeOperatorFunction, Observable, tap } from 'rxjs';
+import { MonoTypeOperatorFunction, NEVER, Observable, tap } from 'rxjs';
 import { CLIENTE } from '../../config/cliente';
 import { environment } from '../../../environments/environment';
+import { enNavegador } from './plataforma';
 
 /**
  * Para datos PÚBLICOS que casi no cambian (servicios, equipo, ajustes del sitio): emite primero la última copia
@@ -46,6 +47,9 @@ export function conCopiaLocal<T>(nombre: string): MonoTypeOperatorFunction<T> {
  * Los callbacks se ejecutan dentro de la zona de Angular para que la vista se actualice.
  */
 export function escuchar<T>(zone: NgZone, consulta: Query<DocumentData>): Observable<(T & { id: string })[]> {
+  // Al compilar las páginas públicas no se lee nada: sin App Check no se podría, y lo leído quedaría viejo en el
+  // HTML. Esas secciones salen como "cargando" y el navegador las llena al abrir.
+  if (!enNavegador) return NEVER;
   return new Observable((subscriber) =>
     onSnapshot(
       consulta,
@@ -58,6 +62,7 @@ export function escuchar<T>(zone: NgZone, consulta: Query<DocumentData>): Observ
 
 /** Escucha un documento en tiempo real. Emite null si no existe. */
 export function escucharDoc<T>(zone: NgZone, ref: DocumentReference<DocumentData>): Observable<(T & { id: string }) | null> {
+  if (!enNavegador) return NEVER;
   return new Observable((subscriber) =>
     onSnapshot(
       ref,

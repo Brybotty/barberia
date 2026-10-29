@@ -10,6 +10,7 @@ import { BarberosService } from '../../../core/services/barberos.service';
 import { CitasService } from '../../../core/services/citas.service';
 import { compararCitas, inicioDeCita } from '../../../core/utils/horario';
 import { PERIODOS, Periodo, ResumenCortes, comisionDe, enPeriodo, rangoDe, resumir, valorCobrado } from '../../../core/utils/ganancias';
+import { multaPendiente, resumirAsistencia } from '../../../core/utils/asistencia';
 import { IconoComponent } from '../../../shared/components/icono/icono.component';
 import { RecurrenteComponent } from '../../../shared/components/recurrente/recurrente.component';
 
@@ -82,6 +83,24 @@ interface FilaBarbero {
             <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Hechos</dt><dd class="text-lg font-black text-white">{{ r.cortes }}</dd></div>
             <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Generado</dt><dd class="text-lg font-black tabular-nums text-white">{{ r.generado | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
             <div><dt class="text-[11px] font-bold uppercase text-neutral-500">No vinieron</dt><dd class="text-lg font-black" [ngClass]="r.noAsistio ? 'text-red-300' : 'text-white'">{{ r.noAsistio }}</dd></div>
+          </dl>
+        </div>
+      }
+
+      <!-- Multas por no asistir: son de la barbería (no cuentan en lo de cada barbero) -->
+      @if (multas(); as m) {
+        <div class="tarjeta mb-8 flex flex-col gap-4 p-5 sm:flex-row sm:items-center" data-resumen-multas>
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-red-400/40 text-red-200">
+            <app-icono nombre="ausente" class="h-5 w-5" [grosor]="1.8" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="font-black text-white">Multas por no asistir</p>
+            <p class="text-sm text-neutral-400">Puestas y cobradas en este período. Son de la barbería: no cuentan en lo de cada barbero.</p>
+          </div>
+          <dl class="grid grid-cols-3 gap-4 text-center sm:text-right">
+            <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Puestas</dt><dd class="text-lg font-black tabular-nums text-white">{{ m.puestas | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+            <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Cobradas</dt><dd class="text-lg font-black tabular-nums text-emerald-300">{{ m.cobradas | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+            <div><dt class="text-[11px] font-bold uppercase text-neutral-500">Por cobrar</dt><dd class="text-lg font-black tabular-nums" [ngClass]="m.pendiente ? 'text-red-300' : 'text-white'">{{ m.pendiente | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
           </dl>
         </div>
       }
@@ -189,6 +208,22 @@ export class AdminRendimientoComponent {
     const rango = rangoDe(this.periodo());
     const fijas = this.citas().filter(c => c.recurrenciaId && enPeriodo(c, rango));
     return fijas.length ? resumir(fijas) : null;
+  });
+
+  /**
+   * Las multas del período (puestas al marcar "No asistió" y cobradas en la visita siguiente) y lo que los clientes
+   * deben hoy, de cualquier fecha. null si nunca se ha puesto una.
+   */
+  readonly multas = computed(() => {
+    const rango = rangoDe(this.periodo());
+    const citas = this.citas();
+    if (!citas.some(c => c.multa || c.multaCobrada)) return null;
+    const enElPeriodo = citas.filter(c => enPeriodo(c, rango));
+    return {
+      puestas: enElPeriodo.reduce((t, c) => t + (c.estado === 'no-asistio' ? c.multa ?? 0 : 0), 0),
+      cobradas: enElPeriodo.reduce((t, c) => t + (c.estado === 'completada' ? c.multaCobrada ?? 0 : 0), 0),
+      pendiente: [...resumirAsistencia(citas).values()].reduce((t, r) => t + multaPendiente(r), 0),
+    };
   });
 
   readonly total = computed(() =>

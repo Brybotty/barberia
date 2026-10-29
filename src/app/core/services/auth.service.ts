@@ -27,7 +27,10 @@ let ventanas: VentanasDeFirebase | undefined;
  * `_shouldInitProactively` e `_initialize` son internos del SDK. Si una versión futura les cambia el nombre, esto
  * deja de tener efecto y todo vuelve a funcionar como con getAuth(): más lento al arrancar, pero sin romperse.
  */
-class VentanasSinPrepararAlArrancar extends (browserPopupRedirectResolver as unknown as new () => object) {
+// Al compilar las páginas públicas (en Node) el SDK no trae ventanas: ahí no se usa, y basta una base vacía.
+const VentanasDeGoogle = (typeof browserPopupRedirectResolver === 'function' ? browserPopupRedirectResolver : class {}) as unknown as new () => object;
+
+class VentanasSinPrepararAlArrancar extends VentanasDeGoogle {
   constructor() {
     super();
     ventanas = this as VentanasDeFirebase;

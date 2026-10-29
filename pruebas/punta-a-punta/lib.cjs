@@ -73,6 +73,48 @@ async function guardarDoc(ruta, datos) {
   });
   if (!r.ok) throw new Error(`No se guardó ${ruta}: ${r.status} ${await r.text()}`);
 }
+async function borrarDoc(ruta) {
+  const r = await fetch(`${FS}/${ruta}`, { method: 'DELETE', headers: { Authorization: 'Bearer owner' } });
+  if (!r.ok) throw new Error(`No se borró ${ruta}: ${r.status} ${await r.text()}`);
+}
+
+// --- La agenda al minuto: un documento por barbero y día en `ocupacion` (como src/app/core/utils/ocupacion.ts) ---
+/** Marcas de 5 minutos de un rato: [primera, cuántas]. */
+const tramo = (inicio, duracion) => [Math.floor(inicio / 5), Math.ceil(duracion / 5)];
+const ocupacion = (barberoId, dia) => doc(`ocupacion/${barberoId}_${dia}`);
+function libreEn(mapa, inicio, duracion) {
+  const [k, n] = tramo(inicio, duracion);
+  return k >= 0 && n > 0 && k + n <= 288 && /^0+$/.test(mapa.slice(k, k + n));
+}
+/** El mapa sin el rato de las citas que cumplan `soltar`. */
+function sinCitas(o, soltar) {
+  let mapa = o.mapa;
+  for (const [id, [k, n]] of Object.entries(o.citas ?? {})) if (soltar(id)) mapa = mapa.slice(0, k) + mapa.slice(k, k + n).replace(/c/g, '0') + mapa.slice(k + n);
+  return mapa;
+}
+/** Los turnos encadenados de un día (lo que ofrece la reserva): cada 40 min desde el inicio de cada rato libre. */
+function turnos(mapa, apertura, cierre, duracion, descanso = null, paso = 40) {
+  const libre = i => mapa[i] === '0' && !(descanso && i * 5 < descanso.hasta && (i + 1) * 5 > descanso.desde);
+  const fin = Math.floor(cierre / 5);
+  const lista = [];
+  let i = Math.ceil(apertura / 5);
+  while (i < fin) {
+    if (!libre(i)) { i++; continue; }
+    let j = i;
+    while (j < fin && libre(j)) j++;
+    for (let t = i * 5; t + duracion <= j * 5; t += paso) lista.push(t);
+    i = j;
+  }
+  return lista;
+}
+/** Aparta un rato en la agenda de un barbero (otra cita), como lo haría una reserva. */
+async function apartarEnAgenda(barberoId, dia, inicio, duracion, citaId) {
+  const o = await ocupacion(barberoId, dia);
+  const [k, n] = tramo(inicio, duracion);
+  await guardarDoc(`ocupacion/${barberoId}_${dia}`, {
+    barberoId, dia, mapa: o.mapa.slice(0, k) + 'c'.repeat(n) + o.mapa.slice(k + n), citas: { ...o.citas, [citaId]: [k, n] }, op: { tipo: 'prueba' },
+  });
+}
 
 // --- Cuentas del emulador de Auth ---
 async function crearCuenta(email, clave, nombre) {
@@ -187,4 +229,4 @@ function correosDesde(rutaLog, desde) {
     .concat([...log.matchAll(/"para":"([a-z]+)","motivo":"([a-z]+)"/g)].map(m => `${m[2]}:${m[1]}`));
 }
 
-module.exports = { RAIZ, LOG_EMULADORES, reiniciar, BASE, CAPTURAS, comprobar, seccion, resumen, docs, doc, guardarDoc, crearCuenta, abrirNavegador, sesion, elegirCookies, limpia, texto, esperarTexto, esperarSinTexto, pausa, clic, escribir, captura, ir, entrar, desborda, correosDesde };
+module.exports = { RAIZ, LOG_EMULADORES, reiniciar, BASE, CAPTURAS, comprobar, seccion, resumen, docs, doc, guardarDoc, borrarDoc, tramo, ocupacion, libreEn, sinCitas, turnos, apartarEnAgenda, crearCuenta, abrirNavegador, sesion, elegirCookies, limpia, texto, esperarTexto, esperarSinTexto, pausa, clic, escribir, captura, ir, entrar, desborda, correosDesde };

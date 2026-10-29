@@ -83,7 +83,16 @@ export interface ConfigCliente {
     zona: string;
     mapaEmbedUrl: string;
     mapaUrl: string;
+    /**
+     * Enlace para dejar una reseña en Google (Perfil de Empresa → "Pedir reseñas", tipo https://g.page/r/…/review).
+     * Sin él se usa `mapaUrl`: abre la ficha en Maps, donde está "Escribir una reseña".
+     */
+    resenaUrl?: string;
   };
+  /** Dirección pública de la página, sin / al final (URL canónica de cada página para Google). */
+  urlSitio?: string;
+  /** Texto del inicio que cuenta qué es y dónde queda el negocio (lo leen las personas y Google). */
+  presentacion?: { titulo: string; parrafos: string[] };
   horario: HorarioAtencion;
   /** Catálogo inicial. El admin lo carga en Firestore desde "Servicios & Precios" cuando la colección está vacía. */
   catalogo: Servicio[];

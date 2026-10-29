@@ -3,6 +3,7 @@ import { NgClass } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { NavigationStart, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { filter, map } from 'rxjs';
+import { enNavegador } from '../../core/utils/plataforma';
 import { CLIENTE } from '../../config/cliente';
 import { AjustesService } from '../../core/services/ajustes.service';
 import { AuthService } from '../../core/services/auth.service';
@@ -22,8 +23,8 @@ import { RedSocialComponent } from '../../shared/components/red-social/red-socia
   imports: [RouterLink, RouterLinkActive, NgClass, IconoComponent, RedSocialComponent],
   host: { class: 'block md:hidden', '(document:keydown.escape)': 'cerrar()' },
   template: `
-    <!-- Guarda el alto de la barra al final de la página, para que no tape el pie -->
-    <div class="h-[calc(4rem+env(safe-area-inset-bottom))] bg-black" aria-hidden="true"></div>
+    <!-- Guarda el alto de la barra al final de la página, para que no tape el pie (4rem más su borde de 1px) -->
+    <div class="h-[calc(4rem+1px+env(safe-area-inset-bottom))] bg-black" aria-hidden="true"></div>
 
     <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-neutral-950/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl" aria-label="Accesos rápidos">
       <ul class="mx-auto grid max-w-md" [ngClass]="panel() ? 'grid-cols-5' : 'grid-cols-4'">
@@ -205,8 +206,10 @@ export class BarraInferiorComponent {
   readonly periodo = this.ajustes.periodo;
 
   constructor() {
-    const reloj = setInterval(() => this.ahora.set(new Date()), 60_000);
-    inject(DestroyRef).onDestroy(() => clearInterval(reloj));
+    if (enNavegador) {
+      const reloj = setInterval(() => this.ahora.set(new Date()), 60_000);
+      inject(DestroyRef).onDestroy(() => clearInterval(reloj));
+    }
     // Al cambiar de página la hoja no se queda encima.
     inject(Router).events.pipe(filter(e => e instanceof NavigationStart), takeUntilDestroyed()).subscribe(() => this.abierta.set(false));
     // El teclado entra a la hoja al abrirla.
